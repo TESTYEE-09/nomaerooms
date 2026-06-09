@@ -8,7 +8,7 @@ import {
   setHumIntensity, stopMusic, setMasterVolume,
 } from './audio/audio.js';
 import {
-  CONFIG, updateStreaming, tickFlicker, updateShadowLight, findSpawnPoint, warmStart,
+  CONFIG, updateStreaming, tickFlicker, updateLights, findSpawnPoint, warmStart,
 } from './world/world.js';
 import { PirateClark, JUMPSCARE_DIST } from './entities/pirate-clark.js';
 import { setupPostFX } from './render/postfx.js';
@@ -65,13 +65,13 @@ scene.fog = new THREE.FogExp2(0x191307, 0.03);
 const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 200);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Cap pixel ratio — a full 2x buffer on a HiDPI display quadruples the fragment
+// cost, which is brutal for a fog-heavy, multi-light forward-rendered scene.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.18;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 mount.appendChild(renderer.domElement);
 const dom = renderer.domElement;
 
@@ -291,7 +291,7 @@ function loop(now) {
     // update world streaming
     updateStreaming(scene, player.pos);
     tickFlicker(now);
-    updateShadowLight(player.pos);
+    updateLights(player.pos);
 
     // footstep audio
     const wish = (player._keys.has('KeyW') || player._keys.has('KeyS') ||

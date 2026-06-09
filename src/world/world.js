@@ -53,7 +53,6 @@ function hash2(cx, cz, salt) {
 const roomsByCell = new Map();   // "cx,cz" → Room[]
 const colliders = [];            // flat list of {box: THREE.Box3, center: THREE.Vector3}
 const roomLights = new Set();    // all currently-loaded room PointLights
-let shadowLight = null;          // the single light currently casting shadows
 let lastPlayerCell = { x: 999, z: 999 };
 
 function cellKey(cx, cz) { return `${cx},${cz}`; }
@@ -219,8 +218,8 @@ function buildRoomMeshes(room) {
   lightFixture.position.set(wx + ww / 2, CONFIG.WALL_H - 0.06, wz + wh / 2);
   group.add(lightFixture);
 
-  // point light for this room. Shadow casting is toggled per-frame by
-  // updateShadowLight() on only the nearest light, so this is cheap by default.
+  // point light for this room. Only the few nearest the player stay enabled
+  // each frame (see updateLights) so the light count never tanks the GPU.
   const baseI = room.lightFlicker ? BASE_LIGHT * 0.45 : BASE_LIGHT;
   const light = new THREE.PointLight(0xffe6a4, baseI, CONFIG.TILE * 9, 2.0);
   light.position.set(wx + ww / 2, CONFIG.WALL_H - 0.5, wz + wh / 2);
@@ -271,7 +270,6 @@ function unloadCell(cx, cz) {
     if (o.userData?.ownMaterial && o.material) o.material.dispose();
     if (o.isPointLight) {
       roomLights.delete(o);
-      if (shadowLight === o) shadowLight = null;
     }
   });
   loadedCells.delete(k);
@@ -342,71 +340,53 @@ export function tickFlicker(time) {
   }
 }
 
-// Each frame, let only the room light nearest the player cast shadows. One
-// shadow map instead of dozens keeps it cheap while still giving the player a
-// real contact shadow and casting Pirate Clark's silhouette across the floor.
-export function updateShadowLight(playerPos, enabled = true) {
-  if (!enabled) {
-    if (shadowLight) { shadowLight.castShadow = false; shadowLight = null; }
-    return;
-  }
-  let best = null, bestD = Infinity;
+// Forward rendering evaluates EVERY visible light for every lit pixel, so a few
+// hundred room lights tank the frame rate with PBR materials. Each frame we keep
+// only the handful nearest the player switched on and hide the rest — they're in
+// fog/darkness anyway. This is the single most important perf lever.
+const MAX_VISIBLE_LIGHTS = 7;
+const _lightBuf = [];
+export function updateLights(playerPos) {
+  _lightBuf.length = 0;
   for (const l of roomLights) {
     const dx = l.position.x - playerPos.x;
     const dz = l.position.z - playerPos.z;
-    const d = dx * dx + dz * dz;
-    if (d < bestD) { bestD = d; best = l; }
+    _lightBuf.push([dx * dx + dz * dz, l]);
   }
-  if (best === shadowLight) return;
-  if (shadowLight) shadowLight.castShadow = false;
-  shadowLight = best;
-  if (shadowLight && !shadowLight.userData.shadowInit) {
-    shadowLight.userData.shadowInit = true;
-    shadowLight.shadow.mapSize.set(1024, 1024);
-    shadowLight.shadow.camera.near = 0.3;
-    shadowLight.shadow.camera.far = CONFIG.TILE * 9;
-    shadowLight.shadow.bias = -0.004;
-    shadowLight.shadow.radius = 3;
+  _lightBuf.sort((a, b) => a[0] - b[0]);
+  for (let i = 0; i < _lightBuf.length; i++) {
+    _lightBuf[i][1].visible = i < MAX_VISIBLE_LIGHTS;
   }
-  if (shadowLight) shadowLight.castShadow = true;
 }
 
 // ---- Collision ---------------------------------------------------------------
 
-// AABB sweep vs static colliders. Returns corrected position + floor Y.
-// We resolve X then Z separately so wall-sliding works.
+// The collider boxes are the WALKABLE room/corridor volumes. A position is valid
+// only while it stays inside that union; stepping into the void between rooms is
+// what a "wall" is. We resolve X then Z separately so you slide along walls, and
+// test the leading edge of the player so you stop just short of the void.
+function walkableAt(x, z) {
+  for (let i = 0; i < colliders.length; i++) {
+    const b = colliders[i].box;
+    if (x >= b.min.x && x <= b.max.x && z >= b.min.z && z <= b.max.z) return true;
+  }
+  return false;
+}
+
 export function resolveCollision(prev, next, halfWidth, halfHeight) {
-  const playerBox = new THREE.Box3();
-
-  // X axis
-  const tryX = next.x;
-  playerBox.min.set(tryX - halfWidth, prev.y - halfHeight, prev.z - halfWidth);
-  playerBox.max.set(tryX + halfWidth, prev.y + halfHeight, prev.z + halfWidth);
-  if (colliders.some(c => playerBox.intersectsBox(c.box))) {
-    next.x = prev.x;
+  // X axis — check the leading edge in the direction of travel.
+  if (next.x !== prev.x) {
+    const edgeX = next.x + Math.sign(next.x - prev.x) * halfWidth;
+    if (!walkableAt(edgeX, prev.z)) next.x = prev.x;
   }
-
   // Z axis
-  const tryZ = next.z;
-  playerBox.min.set(next.x - halfWidth, prev.y - halfHeight, tryZ - halfWidth);
-  playerBox.max.set(next.x + halfWidth, prev.y + halfHeight, tryZ + halfWidth);
-  if (colliders.some(c => playerBox.intersectsBox(c.box))) {
-    next.z = prev.z;
+  if (next.z !== prev.z) {
+    const edgeZ = next.z + Math.sign(next.z - prev.z) * halfWidth;
+    if (!walkableAt(next.x, edgeZ)) next.z = prev.z;
   }
 
-  // Floor (y): find the top of the highest collider below the player.
-  // Since rooms all sit on y=0 and have top y=WALL_H, the player is either on
-  // the floor of a room (y=0, eye height = 1.6) or inside one (which shouldn't
-  // happen if we resolve correctly). We just need a ground reference — use the
-  // nearest room's floor level.
-  let floorY = -Infinity;
-  const px = next.x, pz = next.z;
-  for (const c of colliders) {
-    if (px >= c.box.min.x && px <= c.box.max.x &&
-        pz >= c.box.min.z && pz <= c.box.max.z) {
-      floorY = Math.max(floorY, 0); // room floors are at y=0
-    }
-  }
+  // Floor: y=0 wherever we're standing inside a room, otherwise we're over void.
+  const floorY = walkableAt(next.x, next.z) ? 0 : -Infinity;
   return { floorY };
 }
 

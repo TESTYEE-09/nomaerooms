@@ -84,7 +84,9 @@ export function setupPostFX(renderer, scene, camera) {
   const renderPass = new RenderPass(scene, camera);
   composer.addPass(renderPass);
 
-  const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.85, 0.55, 0.82);
+  // Bloom at half resolution — it's a blurry glow, so the lower res is invisible
+  // but roughly quarters the pass cost.
+  const bloom = new UnrealBloomPass(new THREE.Vector2(Math.round(w / 2), Math.round(h / 2)), 0.85, 0.55, 0.82);
   composer.addPass(bloom);
 
   const outputPass = new OutputPass();   // ACES tone map + sRGB
@@ -95,7 +97,7 @@ export function setupPostFX(renderer, scene, camera) {
 
   function resize(width, height) {
     composer.setSize(width, height);
-    bloom.setSize(width, height);
+    bloom.setSize(Math.round(width / 2), Math.round(height / 2));
   }
 
   // quality: 'high' (full) | 'low' (no bloom, no grain, no aberration)
