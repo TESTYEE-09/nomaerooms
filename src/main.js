@@ -8,9 +8,10 @@ import {
   setHumIntensity, stopMusic, setMasterVolume,
 } from './audio/audio.js';
 import {
-  CONFIG, updateStreaming, tickFlicker, findSpawnPoint, warmStart,
+  CONFIG, updateStreaming, tickFlicker, updateShadowLight, findSpawnPoint, warmStart,
 } from './world/world.js';
 import { PirateClark, JUMPSCARE_DIST } from './entities/pirate-clark.js';
+import { setupPostFX } from './render/postfx.js';
 
 // ---- Boot sequence --------------------------------------------------------
 
@@ -58,17 +59,24 @@ const steps = [
 // ---- Three.js setup --------------------------------------------------------
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x3a2e15);   // warm dim Backrooms sky
-scene.fog = new THREE.FogExp2(0x4a3a1a, 0.02);
+scene.background = new THREE.Color(0x14100a);   // deep murk; lights carve the space
+scene.fog = new THREE.FogExp2(0x191307, 0.03);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 200);
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 200);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.18;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 mount.appendChild(renderer.domElement);
 const dom = renderer.domElement;
+
+// Post-processing composer (bloom + tone map + dread grade)
+const fx = setupPostFX(renderer, scene, camera);
 
 window.addEventListener('error', (e) => {
   console.error('[uncaught]', e.message, e.filename, e.lineno);
@@ -77,10 +85,11 @@ window.addEventListener('unhandledrejection', (e) => {
   console.error('[unhandled rejection]', e.reason);
 });
 
-// subtle hemisphere light + an ambient (rooms have their own point lights)
-const hemi = new THREE.HemisphereLight(0xffe9b0, 0x3a2a14, 1.6);
+// Very low fill so unlit corridors read as genuinely dark — the per-room point
+// lights (see world.js) do the real work and carve the space out of the murk.
+const hemi = new THREE.HemisphereLight(0xffe9b0, 0x1a140a, 0.18);
 scene.add(hemi);
-const amb = new THREE.AmbientLight(0xffe5b0, 1.2);
+const amb = new THREE.AmbientLight(0xffe5b0, 0.06);
 scene.add(amb);
 
 // Warm the world
@@ -318,6 +327,7 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  fx.resize(window.innerWidth, window.innerHeight);
 });
 
 // ---- Spawn Clark after a delay --------------------------------------------
@@ -343,6 +353,7 @@ function loop(now) {
     // update world streaming
     updateStreaming(scene, player.pos);
     tickFlicker(now);
+    updateShadowLight(player.pos);
 
     // footstep audio
     const wish = (player._keys.has('KeyW') || player._keys.has('KeyS') ||
@@ -409,7 +420,8 @@ function loop(now) {
     }
   }
 
-  renderer.render(scene, camera);
+  fx.update(dt);
+  fx.composer.render();
   requestAnimationFrame(loop);
 }
 

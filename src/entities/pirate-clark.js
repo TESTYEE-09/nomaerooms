@@ -102,15 +102,25 @@ export class PirateClark {
     // Tall gaunt figure: dark coat, pale skin, no face detail (liminal).
     const g = this.group;
 
-    const coatMat = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });
-    const skinMat = new THREE.MeshLambertMaterial({ color: 0x6e5a48 });
-    const beltMat = new THREE.MeshLambertMaterial({ color: 0x0a0a0a });
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xc1272d });
-    const hatMat = new THREE.MeshLambertMaterial({ color: 0x0a0a0a });
+    const coatMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92, metalness: 0.0 });
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0x5a4838, roughness: 0.8, metalness: 0.0 });
+    const beltMat = new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 0.7, metalness: 0.1 });
+    // emissive eyes — pushed above the bloom threshold so they glow
+    const eyeMat = new THREE.MeshStandardMaterial({
+      color: 0x000000, emissive: 0xff1414, emissiveIntensity: 5.0, roughness: 1.0,
+    });
+    this._eyeMat = eyeMat;
+    const hatMat = new THREE.MeshStandardMaterial({ color: 0x070707, roughness: 0.6, metalness: 0.15 });
 
     const proxy = new THREE.Group();
     this._proxy = proxy;
     g.add(proxy);
+
+    // a dim red light at the head so he casts a faint bloody wash on nearby walls
+    const menace = new THREE.PointLight(0xff1a1a, 1.2, 5, 2.0);
+    menace.position.set(0, 2.45, 0.15);
+    proxy.add(menace);
+    this._menace = menace;
 
     // Torso (long coat) — tapered
     const torso = new THREE.Mesh(
@@ -185,6 +195,7 @@ export class PirateClark {
     this._legL = legL;
     this._legR = legR;
 
+    proxy.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     this._proxy = proxy;
   }
 
@@ -222,10 +233,10 @@ export class PirateClark {
     if (this._gltfMixer) this._gltfMixer.update(dt);
 
     // Eye glow pulse (only if proxy model — GLB doesn't have these refs)
-    if (this._eyeL) {
-      const pulse = 0.6 + 0.4 * Math.sin(this.t * 3.0);
-      this._eyeL.material.color.setRGB(0.76 * pulse, 0.15 * pulse, 0.17 * pulse);
-      this._eyeR.material.color.setRGB(0.76 * pulse, 0.15 * pulse, 0.17 * pulse);
+    if (this._eyeMat) {
+      const pulse = 0.7 + 0.3 * Math.sin(this.t * 3.0);
+      this._eyeMat.emissiveIntensity = 5.0 * pulse;
+      if (this._menace) this._menace.intensity = 1.2 * pulse;
     }
 
     const toPlayer = new THREE.Vector3().subVectors(playerPos, this.group.position);

@@ -5,6 +5,7 @@
 // than a few hundred rooms at a time.
 
 import * as THREE from 'three';
+import { TEX } from './textures.js';
 
 // ---- Tunables ----------------------------------------------------------------
 
@@ -51,6 +52,8 @@ function hash2(cx, cz, salt) {
 
 const roomsByCell = new Map();   // "cx,cz" → Room[]
 const colliders = [];            // flat list of {box: THREE.Box3, center: THREE.Vector3}
+const roomLights = new Set();    // all currently-loaded room PointLights
+let shadowLight = null;          // the single light currently casting shadows
 let lastPlayerCell = { x: 999, z: 999 };
 
 function cellKey(cx, cz) { return `${cx},${cz}`; }
@@ -116,123 +119,54 @@ function ensureCell(cx, cz) {
 
 // ---- Mesh build helpers ------------------------------------------------------
 
-const ROOM_GEOM = new THREE.PlaneGeometry(1, 1);
-const WALL_GEOM = new THREE.PlaneGeometry(1, 1);
-
-// Procedural wallpaper texture: yellow base + grid + stains. We bake this once.
-function makeWallpaperTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const ctx = c.getContext('2d');
-
-  // base — bright yellow (Backrooms iconic)
-  ctx.fillStyle = '#e6c265';
-  ctx.fillRect(0, 0, 256, 256);
-
-  // mottled stains
-  for (let i = 0; i < 40; i++) {
-    const x = Math.random() * 256;
-    const y = Math.random() * 256;
-    const r = 20 + Math.random() * 50;
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, 'rgba(110, 80, 20, 0.45)');
-    grad.addColorStop(1, 'rgba(110, 80, 20, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-  }
-
-  // faded grid pattern (faint)
-  ctx.strokeStyle = 'rgba(100, 70, 20, 0.18)';
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 256; i += 32) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke();
-  }
-
-  // subtle scratches
-  ctx.strokeStyle = 'rgba(50, 35, 5, 0.3)';
-  for (let i = 0; i < 14; i++) {
-    ctx.beginPath();
-    ctx.moveTo(Math.random() * 256, Math.random() * 256);
-    ctx.lineTo(Math.random() * 256, Math.random() * 256);
-    ctx.stroke();
-  }
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makeCarpetTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#5e6b3d';
-  ctx.fillRect(0, 0, 256, 256);
-  // noise
-  for (let i = 0; i < 4000; i++) {
-    const x = Math.random() * 256;
-    const y = Math.random() * 256;
-    const a = Math.random() * 0.25;
-    ctx.fillStyle = `rgba(${20 + Math.random() * 30},${30 + Math.random() * 30},${10 + Math.random() * 20},${a})`;
-    ctx.fillRect(x, y, 1, 1);
-  }
-  // darker patches
-  for (let i = 0; i < 8; i++) {
-    const x = Math.random() * 256;
-    const y = Math.random() * 256;
-    const r = 30 + Math.random() * 60;
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, 'rgba(20, 30, 10, 0.4)');
-    grad.addColorStop(1, 'rgba(20, 30, 10, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function makeCeilingTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#dccd9a';
-  ctx.fillRect(0, 0, 128, 128);
-  // tile lines
-  ctx.strokeStyle = 'rgba(60, 50, 30, 0.4)';
-  for (let i = 0; i <= 128; i += 32) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 128); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(128, i); ctx.stroke();
-  }
-  // water stains
-  for (let i = 0; i < 6; i++) {
-    const x = Math.random() * 128;
-    const y = Math.random() * 128;
-    const r = 10 + Math.random() * 25;
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, 'rgba(100, 80, 40, 0.4)');
-    grad.addColorStop(1, 'rgba(100, 80, 40, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-const wallpaperTex = makeWallpaperTexture();
-const carpetTex = makeCarpetTexture();
-const ceilingTex = makeCeilingTexture();
-
+// PBR materials sharing the procedural texture sets from textures.js. Each room
+// gets its own geometry (built at real world dimensions) with UVs scaled so the
+// textures tile at a fixed real-world rate instead of stretching per room.
 const sharedMats = {
-  floor: new THREE.MeshLambertMaterial({ map: carpetTex }),
-  ceiling: new THREE.MeshLambertMaterial({ map: ceilingTex }),
-  wall: new THREE.MeshLambertMaterial({ map: wallpaperTex, side: THREE.FrontSide }),
+  floor: new THREE.MeshStandardMaterial({
+    map: TEX.carpet.map,
+    normalMap: TEX.carpet.normalMap,
+    roughnessMap: TEX.carpet.roughnessMap,
+    roughness: 1.0, metalness: 0.0,
+  }),
+  ceiling: new THREE.MeshStandardMaterial({
+    map: TEX.ceiling.map,
+    normalMap: TEX.ceiling.normalMap,
+    roughnessMap: TEX.ceiling.roughnessMap,
+    roughness: 0.9, metalness: 0.0,
+  }),
+  wall: new THREE.MeshStandardMaterial({
+    map: TEX.wallpaper.map,
+    normalMap: TEX.wallpaper.normalMap,
+    roughnessMap: TEX.wallpaper.roughnessMap,
+    roughness: 0.85, metalness: 0.0,
+    side: THREE.FrontSide,
+  }),
+  fixture: new THREE.MeshStandardMaterial({
+    color: 0xfff4c8, emissive: 0xfff1c0, emissiveIntensity: 2.4,
+    roughness: 0.4, metalness: 0.0,
+  }),
 };
+sharedMats.wall.normalScale = new THREE.Vector2(0.8, 0.8);
+sharedMats.floor.normalScale = new THREE.Vector2(1.0, 1.0);
+sharedMats.ceiling.normalScale = new THREE.Vector2(0.6, 0.6);
+
+// Build a plane at real (w, h) world dimensions with UVs that repeat every
+// `tile` world units, so a shared tiling texture reads at a consistent scale.
+function makePlane(w, h, tile) {
+  const geom = new THREE.PlaneGeometry(w, h);
+  const uv = geom.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, uv.getX(i) * (w / tile), uv.getY(i) * (h / tile));
+  }
+  uv.needsUpdate = true;
+  return geom;
+}
+
+const FLOOR_TILE = 3.0;     // world units per carpet repeat
+const WALL_TILE = 3.0;      // world units per wallpaper repeat
+const CEIL_TILE = 4.0;      // world units per ceiling-tile-pair repeat
+const BASE_LIGHT = 30;      // candela for a healthy room light (physical units)
 
 function buildRoomMeshes(room) {
   const group = new THREE.Group();
@@ -242,53 +176,63 @@ function buildRoomMeshes(room) {
   const wh = room.h * CONFIG.TILE;
 
   // floor
-  const floor = new THREE.Mesh(ROOM_GEOM, sharedMats.floor);
+  const floor = new THREE.Mesh(makePlane(ww, wh, FLOOR_TILE), sharedMats.floor);
   floor.rotation.x = -Math.PI / 2;
-  floor.scale.set(ww, wh, 1);
   floor.position.set(wx + ww / 2, 0, wz + wh / 2);
   floor.receiveShadow = true;
   group.add(floor);
 
-  // ceiling (slightly lower so lights feel "in the room")
-  const ceiling = new THREE.Mesh(ROOM_GEOM, sharedMats.ceiling);
+  // ceiling
+  const ceiling = new THREE.Mesh(makePlane(ww, wh, CEIL_TILE), sharedMats.ceiling);
   ceiling.rotation.x = Math.PI / 2;
-  ceiling.scale.set(ww, wh, 1);
   ceiling.position.set(wx + ww / 2, CONFIG.WALL_H, wz + wh / 2);
+  ceiling.receiveShadow = true;
   group.add(ceiling);
 
   // walls (4)
   const wMat = sharedMats.wall;
-  const makeWall = (sx, sz, sw, sh, rotY) => {
-    const m = new THREE.Mesh(WALL_GEOM, wMat);
-    m.scale.set(sw, sh, 1);
-    m.position.set(sx, sh / 2, sz);
+  const makeWall = (sx, sz, sw, rotY) => {
+    const m = new THREE.Mesh(makePlane(sw, CONFIG.WALL_H, WALL_TILE), wMat);
+    m.position.set(sx, CONFIG.WALL_H / 2, sz);
     m.rotation.y = rotY;
+    m.castShadow = true;
+    m.receiveShadow = true;
     group.add(m);
   };
   // north (z = wz)
-  makeWall(wx + ww / 2, wz, ww, CONFIG.WALL_H, 0);
+  makeWall(wx + ww / 2, wz, ww, 0);
   // south (z = wz + wh)
-  makeWall(wx + ww / 2, wz + wh, ww, CONFIG.WALL_H, Math.PI);
+  makeWall(wx + ww / 2, wz + wh, ww, Math.PI);
   // west (x = wx)
-  makeWall(wx, wz + wh / 2, wh, CONFIG.WALL_H, -Math.PI / 2);
+  makeWall(wx, wz + wh / 2, wh, -Math.PI / 2);
   // east (x = wx + ww)
-  makeWall(wx + ww, wz + wh / 2, wh, CONFIG.WALL_H, Math.PI / 2);
+  makeWall(wx + ww, wz + wh / 2, wh, Math.PI / 2);
 
-  // light fixture on ceiling
+  // light fixture on ceiling — emissive so the bloom pass makes it glow.
+  // Flicker rooms get their own material so their glow can pulse independently.
+  const fxMat = room.lightFlicker ? sharedMats.fixture.clone() : sharedMats.fixture;
   const lightFixture = new THREE.Mesh(
-    new THREE.BoxGeometry(CONFIG.TILE * 0.8, 0.2, CONFIG.TILE * 0.3),
-    new THREE.MeshBasicMaterial({ color: 0xfff4c8 })
+    new THREE.BoxGeometry(CONFIG.TILE * 0.9, 0.12, CONFIG.TILE * 0.32),
+    fxMat
   );
-  lightFixture.position.set(wx + ww / 2, CONFIG.WALL_H - 0.05, wz + wh / 2);
+  if (room.lightFlicker) lightFixture.userData.ownMaterial = true;
+  lightFixture.position.set(wx + ww / 2, CONFIG.WALL_H - 0.06, wz + wh / 2);
   group.add(lightFixture);
 
-  // point light for this room (always-on at half intensity; flicker rooms dim occasionally)
-  const light = new THREE.PointLight(0xffe9a8, room.lightFlicker ? 0.6 : 1.4, CONFIG.TILE * 6, 1.6);
+  // point light for this room. Shadow casting is toggled per-frame by
+  // updateShadowLight() on only the nearest light, so this is cheap by default.
+  const baseI = room.lightFlicker ? BASE_LIGHT * 0.45 : BASE_LIGHT;
+  const light = new THREE.PointLight(0xffe6a4, baseI, CONFIG.TILE * 9, 2.0);
   light.position.set(wx + ww / 2, CONFIG.WALL_H - 0.5, wz + wh / 2);
-  if (room.lightFlicker) {
-    light.userData = { flicker: true, seed: room.lightSeed, baseIntensity: 1.4 };
-  }
+  light.userData = {
+    isRoomLight: true,
+    baseIntensity: baseI,
+    flicker: !!room.lightFlicker,
+    seed: room.lightSeed,
+    fixture: lightFixture,
+  };
   group.add(light);
+  roomLights.add(light);
 
   // collider
   const box = new THREE.Box3(
@@ -321,8 +265,13 @@ function unloadCell(cx, cz) {
   if (!g) return;
   g.parent?.remove(g);
   g.traverse((o) => {
-    if (o.geometry && o.geometry !== ROOM_GEOM && o.geometry !== WALL_GEOM) {
-      // shared geometries are reused; only dispose per-mesh extras
+    // Geometries are per-room (built with custom UVs), so dispose them.
+    // Materials and textures are shared across all rooms — leave them.
+    if (o.geometry) o.geometry.dispose();
+    if (o.userData?.ownMaterial && o.material) o.material.dispose();
+    if (o.isPointLight) {
+      roomLights.delete(o);
+      if (shadowLight === o) shadowLight = null;
     }
   });
   loadedCells.delete(k);
@@ -375,18 +324,51 @@ export function updateStreaming(scene, playerPos) {
 export function getColliders() { return colliders; }
 
 export function tickFlicker(time) {
-  // Update flickering lights (subtle pulse, not full blackout)
-  for (const g of loadedCells.values()) {
-    g.traverse((o) => {
-      if (o.isPointLight && o.userData?.flicker) {
-        const seed = o.userData.seed;
-        const base = o.userData.baseIntensity ?? 1.4;
-        const t = (time / 1000 + seed * 0.001) % 1000;
-        const flicker = 0.7 + 0.3 * (Math.sin(t * 13.0) * Math.sin(t * 7.3) * 0.5 + 0.5);
-        o.intensity = base * flicker;
-      }
-    });
+  // Update flickering fluorescent tubes — occasional sharp dropouts plus a
+  // constant low buzz, and drive the emissive fixture so the bloom flickers too.
+  const t = time / 1000;
+  for (const l of roomLights) {
+    if (!l.userData.flicker) continue;
+    const seed = l.userData.seed;
+    const base = l.userData.baseIntensity;
+    const s = t + seed * 0.001;
+    const buzz = 0.85 + 0.15 * Math.sin(s * 47.0);
+    const drop = Math.sin(s * 13.0) * Math.sin(s * 7.3) > 0.92 ? 0.15 : 1.0;
+    const k = buzz * drop;
+    l.intensity = base * k;
+    // flicker the tube's own glow too (per-room cloned material)
+    const fx = l.userData.fixture;
+    if (fx && fx.userData.ownMaterial) fx.material.emissiveIntensity = 2.4 * k;
   }
+}
+
+// Each frame, let only the room light nearest the player cast shadows. One
+// shadow map instead of dozens keeps it cheap while still giving the player a
+// real contact shadow and casting Pirate Clark's silhouette across the floor.
+export function updateShadowLight(playerPos, enabled = true) {
+  if (!enabled) {
+    if (shadowLight) { shadowLight.castShadow = false; shadowLight = null; }
+    return;
+  }
+  let best = null, bestD = Infinity;
+  for (const l of roomLights) {
+    const dx = l.position.x - playerPos.x;
+    const dz = l.position.z - playerPos.z;
+    const d = dx * dx + dz * dz;
+    if (d < bestD) { bestD = d; best = l; }
+  }
+  if (best === shadowLight) return;
+  if (shadowLight) shadowLight.castShadow = false;
+  shadowLight = best;
+  if (shadowLight && !shadowLight.userData.shadowInit) {
+    shadowLight.userData.shadowInit = true;
+    shadowLight.shadow.mapSize.set(1024, 1024);
+    shadowLight.shadow.camera.near = 0.3;
+    shadowLight.shadow.camera.far = CONFIG.TILE * 9;
+    shadowLight.shadow.bias = -0.004;
+    shadowLight.shadow.radius = 3;
+  }
+  if (shadowLight) shadowLight.castShadow = true;
 }
 
 // ---- Collision ---------------------------------------------------------------
