@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>NomaeROOMS</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23c9a44a'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-size='40' font-family='monospace' fill='%235a3a00'%3E%3F%3C/text%3E%3C/svg%3E" />
-  <script type="module" crossorigin src="./assets/index-CzGS5ZaN.js"></script>
+  <script type="module" crossorigin src="./assets/index-Ch7pHbg3.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-Colh-8VL.css">
 </head>
 <body>
@@ -39,12 +39,6 @@
           <input id="name-input" type="text" maxlength="16" placeholder="nomad" />
         </div>
 
-        <div class="form-row">
-          <label for="voice-select">Your voice (for chat clips)</label>
-          <select id="voice-select"></select>
-          <button id="voice-test" class="btn-tiny">Test</button>
-        </div>
-
         <div class="menu-buttons">
           <button id="btn-solo" class="btn btn-primary">Play Solo</button>
           <button id="btn-host" class="btn">Host Room</button>
@@ -62,7 +56,7 @@
         </div>
 
         <p class="footnote">
-          Arrow keys / WASD to move. Mouse to look. <kbd>Shift</kbd> sprint. <kbd>Space</kbd> jump. <kbd>T</kbd> chat. <kbd>V</kbd> last clip. <kbd>C</kbd> credits. <kbd>Esc</kbd> pause.
+          Arrow keys / WASD to move. Mouse to look. <kbd>Shift</kbd> sprint. <kbd>Space</kbd> jump. <kbd>T</kbd> chat. <kbd>C</kbd> credits. <kbd>Esc</kbd> pause.
         </p>
       </div>
     </div>
@@ -92,10 +86,7 @@
       <div id="chat-input-wrap" class="hidden">
         <span class="prompt">&gt;</span>
         <input id="chat-input" type="text" maxlength="140" placeholder="say something…" autocomplete="off" />
-        <button id="chat-clip" title="Save last message as a clip" class="btn-tiny">SAVE CLIP</button>
       </div>
-
-      <div id="clip-toast" class="hidden"></div>
 
       <div id="crosshair"></div>
 
@@ -117,8 +108,6 @@
             · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a></p>
           <p class="credits-line"><span class="ck">Music — "Backrooms-style ambient"</span><br>
             via Handprint Media on YouTube · used with attribution</p>
-          <p class="credits-line"><span class="ck">Voice / TTS</span><br>
-            browser-native SpeechSynthesis (system voices) · no data leaves your device</p>
           <p class="credits-line"><span class="ck">Engine</span><br>
             Three.js · PeerJS · Vite</p>
           <p class="hint" style="margin-top:18px;">Press <kbd>C</kbd> to close</p>
