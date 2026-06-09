@@ -1,196 +1,253 @@
-// audio.js — ambient + music
-//
-// We don't ship copyrighted music. Instead we:
-//  1. Procedurally synthesize the "Backrooms hum" (fluorescent buzz + low drone)
-//     using Web Audio. Always present, never blocks.
-//  2. Optionally play tracks from /assets/music/*.ogg|.mp3|.wav if the user
-//     drops them in. README explains.
-//
-// Procedural pieces use a shared AudioContext, lazy-initialized on first user
-// gesture (browser autoplay policy).
+// All in-game sound is synthesized with WebAudio (no asset downloads):
+// room tone, fluorescent buzz, carpet footsteps, heartbeat + chase drone tied
+// to Clark's distance, and the jumpscare sting. Menu music is theme.mp3.
 
-let ctx = null;
-let master = null;
-let humOsc = null, humOsc2 = null, humGain = null, humLfo = null;
-let droneOsc = null, droneGain = null;
-let musicGain = null;
-let currentMusic = null;
+import { clamp } from '../core/utils.js';
 
-function ensure() {
-  if (ctx) return ctx;
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return null;
-  ctx = new AC();
-  master = ctx.createGain();
-  master.gain.value = 0.5;
-  master.connect(ctx.destination);
-  musicGain = ctx.createGain();
-  musicGain.gain.value = 0.55;
-  musicGain.connect(master);
-  return ctx;
-}
-
-export function resumeAudio() {
-  const c = ensure();
-  if (c && c.state === 'suspended') c.resume();
-}
-
-export function setMasterVolume(v) {
-  if (master) master.gain.value = v;
-}
-
-// ---- Procedural Backrooms hum ----
-export function startHum() {
-  const c = ensure();
-  if (!c) return;
-
-  // Two slightly detuned sawtooth oscillators through a lowpass = fluorescent buzz
-  humOsc = c.createOscillator();
-  humOsc.type = 'sawtooth';
-  humOsc.frequency.value = 60;
-  humOsc2 = c.createOscillator();
-  humOsc2.type = 'sawtooth';
-  humOsc2.frequency.value = 60.4; // slow beat
-
-  const lp = c.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 600;
-  lp.Q.value = 0.7;
-
-  humGain = c.createGain();
-  humGain.gain.value = 0.0;
-
-  humOsc.connect(lp);
-  humOsc2.connect(lp);
-  lp.connect(humGain);
-  humGain.connect(master);
-
-  humOsc.start();
-  humOsc2.start();
-
-  // LFO for slow pulsation
-  humLfo = c.createOscillator();
-  humLfo.frequency.value = 0.13;
-  const lfoGain = c.createGain();
-  lfoGain.gain.value = 0.04;
-  humLfo.connect(lfoGain);
-  lfoGain.connect(humGain.gain);
-  humLfo.start();
-
-  // Sub-bass drone
-  droneOsc = c.createOscillator();
-  droneOsc.type = 'sine';
-  droneOsc.frequency.value = 45;
-  droneGain = c.createGain();
-  droneGain.gain.value = 0.0;
-  droneOsc.connect(droneGain);
-  droneGain.connect(master);
-  droneOsc.start();
-
-  // Fade in
-  const now = c.currentTime;
-  humGain.gain.linearRampToValueAtTime(0.06, now + 4);
-  droneGain.gain.linearRampToValueAtTime(0.05, now + 6);
-}
-
-export function setHumIntensity(v) {
-  if (humGain) humGain.gain.value = 0.06 * v;
-  if (droneGain) droneGain.gain.value = 0.05 * v;
-}
-
-// ---- Music slot ----
-// Try a list of filenames; the first one that loads with 200 OK plays.
-// If none are present, the procedural hum is the only sound and the game
-// still feels complete.
-//
-// theme.ogg is the default and ships in the bundle (Kane Parsons-vibe track
-// from Handprint Media, YouTube-dashed audio, normalized to 90s for a clean
-// loop). mp3 and wav are fallbacks for browsers that don't support opus-in-ogg.
-
-const MUSIC_CANDIDATES = [
-  './assets/music/theme.ogg',
-  './assets/music/theme.mp3',
-  './assets/music/theme.wav',
-];
-
-export async function tryStartMusic() {
-  const c = ensure();
-  if (!c) return;
-
-  for (const url of MUSIC_CANDIDATES) {
-    try {
-      const r = await fetch(url, { method: 'HEAD' });
-      if (r.ok) {
-        const audio = new Audio(url);
-        audio.loop = true;
-        audio.volume = 0.5;
-        await audio.play();
-        currentMusic = audio;
-        return true;
-      }
-    } catch {}
+export class AudioEngine {
+  constructor(settingsRef) {
+    this.settings = settingsRef;
+    this.ctx = null;
+    this.started = false;
+    this.fear = 0;
+    this._nextBeat = 0;
+    this._music = null;
   }
-  return false;
-}
 
-export function stopMusic() {
-  if (currentMusic) {
-    currentMusic.pause();
-    currentMusic = null;
+  // must be called from a user gesture
+  init() {
+    if (this.started) return;
+    this.started = true;
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.ctx = ctx;
+
+    this.master = ctx.createGain();
+    this.master.connect(ctx.destination);
+    this.sfx = ctx.createGain();
+    this.sfx.connect(this.master);
+    this.applyVolumes();
+
+    // --- room tone: looped brown noise, heavily low-passed
+    const noiseBuf = this._noiseBuffer(4, 'brown');
+    const amb = ctx.createBufferSource();
+    amb.buffer = noiseBuf;
+    amb.loop = true;
+    const ambFilt = ctx.createBiquadFilter();
+    ambFilt.type = 'lowpass';
+    ambFilt.frequency.value = 240;
+    this.ambGain = ctx.createGain();
+    this.ambGain.gain.value = 0.0;
+    amb.connect(ambFilt).connect(this.ambGain).connect(this.sfx);
+    amb.start();
+
+    // --- fluorescent buzz: 120 Hz + harmonics, gain driven per frame
+    this.buzzGain = ctx.createGain();
+    this.buzzGain.gain.value = 0;
+    this.buzzGain.connect(this.sfx);
+    for (const [f, g] of [[120, 1], [240, 0.5], [360, 0.22]]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = f;
+      const og = ctx.createGain();
+      og.gain.value = g * 0.012;
+      o.connect(og).connect(this.buzzGain);
+      o.start();
+    }
+
+    // --- chase drone: detuned saws through a dark filter, swells with fear
+    this.droneGain = ctx.createGain();
+    this.droneGain.gain.value = 0;
+    const droneFilt = ctx.createBiquadFilter();
+    droneFilt.type = 'lowpass';
+    droneFilt.frequency.value = 420;
+    droneFilt.Q.value = 3;
+    this.droneGain.connect(this.sfx);
+    droneFilt.connect(this.droneGain);
+    for (const det of [-14, -5, 0, 7, 19]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = 55;
+      o.detune.value = det * 8;
+      const og = ctx.createGain();
+      og.gain.value = 0.05;
+      o.connect(og).connect(droneFilt);
+      o.start();
+    }
   }
-}
 
-// ---- Footsteps (procedural) ----
-let lastFootstep = 0;
-export function playFootstep() {
-  const c = ensure();
-  if (!c) return;
-  const now = c.currentTime;
-  if (now - lastFootstep < 0.32) return;
-  lastFootstep = now;
-  const noise = c.createBufferSource();
-  const buf = c.createBuffer(1, 1024, c.sampleRate);
-  const ch = buf.getChannelData(0);
-  for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / 200);
-  noise.buffer = buf;
-  const g = c.createGain();
-  g.gain.value = 0.08;
-  const lp = c.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 500;
-  noise.connect(lp); lp.connect(g); g.connect(master);
-  noise.start();
-}
+  _noiseBuffer(seconds, kind = 'white') {
+    const ctx = this.ctx;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < d.length; i++) {
+      const w = Math.random() * 2 - 1;
+      if (kind === 'brown') {
+        last = (last + 0.02 * w) / 1.02;
+        d[i] = last * 3.5;
+      } else d[i] = w;
+    }
+    return buf;
+  }
 
-// ---- Jumpscare sting ----
-export function playJumpscare() {
-  const c = ensure();
-  if (!c) return;
-  const now = c.currentTime;
-  // a quick sweep + chord
-  const osc = c.createOscillator();
-  osc.type = 'sawtooth';
-  osc.frequency.setValueAtTime(200, now);
-  osc.frequency.exponentialRampToValueAtTime(60, now + 0.6);
-  const g = c.createGain();
-  g.gain.setValueAtTime(0.0, now);
-  g.gain.linearRampToValueAtTime(0.4, now + 0.05);
-  g.gain.linearRampToValueAtTime(0.0, now + 0.8);
-  osc.connect(g); g.connect(master);
-  osc.start(now);
-  osc.stop(now + 0.85);
+  applyVolumes() {
+    if (this.master) this.master.gain.value = this.settings.volume;
+    if (this._music) this._music.volume = this.settings.musicVolume * this.settings.volume * 0.7;
+  }
 
-  // a stinger chord
-  [110, 138, 165].forEach((f) => {
-    const o = c.createOscillator();
+  // ---- menu music (theme.mp3, looped) ----
+  playMenuMusic() {
+    if (!this._music) {
+      this._music = new Audio('./assets/music/theme.mp3');
+      this._music.loop = true;
+    }
+    this._music.volume = this.settings.musicVolume * this.settings.volume * 0.7;
+    this._music.play().catch(() => { /* needs a user gesture; retried on click */ });
+  }
+  stopMenuMusic(fade = 1.2) {
+    const m = this._music;
+    if (!m || m.paused) return;
+    const v0 = m.volume;
+    const t0 = performance.now();
+    const tick = () => {
+      const k = (performance.now() - t0) / (fade * 1000);
+      if (k >= 1 || m.paused) { m.pause(); m.volume = v0; return; }
+      m.volume = v0 * (1 - k);
+      requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  enterGame() {
+    this.stopMenuMusic();
+    if (this.ambGain) this.ambGain.gain.linearRampToValueAtTime(0.5, this.ctx.currentTime + 2);
+  }
+
+  // dt-driven update: buzz follows the nearest fixture, heartbeat + drone follow fear
+  update(t, buzzAmount, fear) {
+    if (!this.ctx) return;
+    this.fear = fear;
+    const ct = this.ctx.currentTime;
+    this.buzzGain.gain.setTargetAtTime(clamp(buzzAmount, 0, 1), ct, 0.08);
+    this.droneGain.gain.setTargetAtTime(Math.max(0, fear - 0.35) * 1.5, ct, 0.4);
+
+    if (fear > 0.15 && t > this._nextBeat) {
+      const rate = 1.15 - fear * 0.62;       // seconds between beats
+      this._nextBeat = t + rate;
+      this._thump(0.25 + fear * 0.5);
+      setTimeout(() => this._thump(0.18 + fear * 0.35), rate * 280);
+    }
+  }
+
+  _thump(vol) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(58, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+    o.connect(g).connect(this.sfx);
+    o.start();
+    o.stop(ctx.currentTime + 0.2);
+  }
+
+  footstep(sprint) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this._stepBuf || (this._stepBuf = this._noiseBuffer(0.25));
+    src.playbackRate.value = 0.8 + Math.random() * 0.45;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = sprint ? 950 : 620;
+    const g = ctx.createGain();
+    const v = sprint ? 0.16 : 0.09;
+    g.gain.setValueAtTime(v, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.11);
+    src.connect(f).connect(g).connect(this.sfx);
+    src.start(0, Math.random() * 0.1, 0.13);
+  }
+
+  // distant other-player steps could go here (kept simple: ignored)
+
+  click() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
     o.type = 'square';
-    o.frequency.value = f;
-    const gg = c.createGain();
-    gg.gain.setValueAtTime(0.0, now);
-    gg.gain.linearRampToValueAtTime(0.12, now + 0.02);
-    gg.gain.linearRampToValueAtTime(0.0, now + 1.2);
-    o.connect(gg); gg.connect(master);
-    o.start(now);
-    o.stop(now + 1.25);
-  });
+    o.frequency.value = 1400;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.05, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+    o.connect(g).connect(this.sfx);
+    o.start();
+    o.stop(ctx.currentTime + 0.06);
+  }
+
+  chatPing() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(880, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(660, ctx.currentTime + 0.12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.07, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    o.connect(g).connect(this.sfx);
+    o.start();
+    o.stop(ctx.currentTime + 0.2);
+  }
+
+  jumpscare() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+
+    // layered scream: detuned saw cluster swept down through a screechy bandpass
+    for (const det of [0, 23, -31, 47, -57]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(720, t0);
+      o.frequency.exponentialRampToValueAtTime(140, t0 + 1.0);
+      o.detune.value = det * 4;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.setValueAtTime(1500, t0);
+      f.frequency.exponentialRampToValueAtTime(300, t0 + 1.0);
+      f.Q.value = 1.4;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.22, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.15);
+      o.connect(f).connect(g).connect(this.master);
+      o.start(t0);
+      o.stop(t0 + 1.2);
+    }
+    // noise crash
+    const n = ctx.createBufferSource();
+    n.buffer = this._noiseBuffer(1.2);
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'highpass';
+    nf.frequency.value = 300;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.35, t0);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9);
+    n.connect(nf).connect(ng).connect(this.master);
+    n.start(t0);
+    // sub impact
+    const s = ctx.createOscillator();
+    s.type = 'sine';
+    s.frequency.setValueAtTime(90, t0);
+    s.frequency.exponentialRampToValueAtTime(28, t0 + 0.7);
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.5, t0);
+    sg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.8);
+    s.connect(sg).connect(this.master);
+    s.start(t0);
+    s.stop(t0 + 0.9);
+  }
 }

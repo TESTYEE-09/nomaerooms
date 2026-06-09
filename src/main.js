@@ -1,423 +1,348 @@
-// main.js — wires it all together
+// NomaeROOMS — entry point and game orchestration.
+// Boot → menu → (host|join) → play loop. See module headers for subsystem docs.
+
 import * as THREE from 'three';
-import { Player, PLAYER_EYE_H } from './player.js';
+import { UI } from './ui/ui.js';
+import { Graphics } from './render/graphics.js';
+import { buildMaterials } from './world/textures.js';
+import { ChunkManager } from './world/chunks.js';
+import { LightPool } from './world/lights.js';
+import * as gen from './world/generator.js';
+import { Input, IS_TOUCH } from './core/input.js';
+import { PlayerController } from './player/controller.js';
+import { AudioEngine } from './audio/audio.js';
+import { Clark } from './entities/clark.js';
 import { Net } from './net/net.js';
-import { ChatSystem } from './ui/chat.js';
-import {
-  startHum, resumeAudio, tryStartMusic, playFootstep, playJumpscare,
-  setHumIntensity, stopMusic, setMasterVolume,
-} from './audio/audio.js';
-import {
-  CONFIG, updateStreaming, tickFlicker, updateLights, findSpawnPoint, warmStart,
-} from './world/world.js';
-import { PirateClark, JUMPSCARE_DIST } from './entities/pirate-clark.js';
-import { setupPostFX } from './render/postfx.js';
+import { RemotePlayers } from './net/remotes.js';
+import { loadSettings, settings } from './core/settings.js';
+import { makeRoomCode, normalizeRoomCode, clamp, damp } from './core/utils.js';
+import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL } from './core/config.js';
 
-// ---- Boot sequence --------------------------------------------------------
+loadSettings();
 
-const $ = (id) => document.getElementById(id);
-const bootMsg = $('boot-msg');
-const bootFill = $('boot-fill');
-const bootScreen = $('boot');
-const menuScreen = $('menu');
-const hudScreen = $('hud');
-const mobileScreen = $('mobile');
-const mount = $('canvas-mount');
+const ui = new UI();
+const graphics = new Graphics(ui.el.canvas);
+const input = new Input();
+const audio = new AudioEngine(settings);
+const player = new PlayerController(graphics.camera, input, settings);
+const materials = buildMaterials();
+const chunks = new ChunkManager(graphics.scene, materials);
+const lights = new LightPool(graphics.scene);
+lights.chunkManager = chunks;
+const remotes = new RemotePlayers(graphics.scene);
+const clark = new Clark(graphics.scene);
+const net = new Net();
 
-let progress = 0;
-function bootStep(msg, pct) {
-  bootMsg.textContent = msg;
-  bootFill.style.width = `${pct}%`;
-}
+let state = 'loading';      // loading | menu | playing | paused | dead | scare
+let fear = 0;
+let sendAcc = 0, clarkAcc = 0;
+let myColor = '#7da2ff';
 
-// mobile fallback
-if (window.innerWidth < 720 || /Mobi|Android/i.test(navigator.userAgent)) {
-  bootScreen.classList.add('hidden');
-  mobileScreen.classList.remove('hidden');
-}
+// ---------- boot ----------
 
-const steps = [
-  ['starting generator…', 12],
-  ['rendering poolrooms…', 28],
-  ['awakening Pirate Clark…', 44],
-  ['attuning radios…', 62],
-  ['connecting to broker…', 78],
-  ['warming the lights…', 90],
-  ['noloop achieved', 100],
+const TIPS = [
+  'waking the fluorescents…',
+  'unrolling the damp carpet…',
+  'hanging the wallpaper…',
+  'he can hear you…',
 ];
+ui.showLoading(0.02, TIPS[0]);
 
-(async function boot() {
-  for (let i = 0; i < steps.length; i++) {
-    bootStep(steps[i][0], steps[i][1]);
-    await new Promise((r) => setTimeout(r, 350));
-  }
-  await new Promise((r) => setTimeout(r, 600));
-  bootScreen.classList.add('hidden');
-  menuScreen.classList.remove('hidden');
-})();
-
-// ---- Three.js setup --------------------------------------------------------
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x14100a);   // deep murk; lights carve the space
-scene.fog = new THREE.FogExp2(0x191307, 0.03);
-
-const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.05, 200);
-
-const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-// Cap pixel ratio — a full 2x buffer on a HiDPI display quadruples the fragment
-// cost, which is brutal for a fog-heavy, multi-light forward-rendered scene.
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.18;
-mount.appendChild(renderer.domElement);
-const dom = renderer.domElement;
-
-// Post-processing composer (bloom + tone map + dread grade)
-const fx = setupPostFX(renderer, scene, camera);
-
-window.addEventListener('error', (e) => {
-  console.error('[uncaught]', e.message, e.filename, e.lineno);
-});
-window.addEventListener('unhandledrejection', (e) => {
-  console.error('[unhandled rejection]', e.reason);
+clark.load((ev) => {
+  if (ev?.total) ui.showLoading(0.05 + 0.9 * (ev.loaded / ev.total), TIPS[(ev.loaded / ev.total * 3.5) | 0]);
+}).catch((e) => {
+  console.warn('[clark] model failed to load:', e);
+  ui.toast('warning: the entity failed to load');
+}).finally(() => {
+  ui.showLoading(1, 'ready.');
+  setTimeout(() => { state = 'menu'; ui.showMenu(); }, 350);
 });
 
-// Very low fill so unlit corridors read as genuinely dark — the per-room point
-// lights (see world.js) do the real work and carve the space out of the murk.
-const hemi = new THREE.HemisphereLight(0xffe9b0, 0x1a140a, 0.18);
-scene.add(hemi);
-const amb = new THREE.AmbientLight(0xffe5b0, 0.06);
-scene.add(amb);
-
-// Warm the world
-warmStart(scene);
-
-// ---- Player ----------------------------------------------------------------
-
-const player = new Player(camera, dom);
-player.teleport(findSpawnPoint());
-scene.add(camera);
-
-// ---- Entities --------------------------------------------------------------
-
-const clark = new PirateClark(scene);
-
-// ---- UI wiring -------------------------------------------------------------
-
-const ui = {
-  logEl: $('chat-log'),
-  listEl: $('chat-messages'),
-  inputEl: $('chat-input'),
-  wrapEl: $('chat-input-wrap'),
-  sanityBar: $('bar-sanity'),
-  staminaBar: $('bar-stamina'),
-  roomCode: $('room-code'),
-  playerCount: $('player-count'),
-  clarkWarning: $('clark-warning'),
-  clarkText: $('clark-text'),
-  pause: $('pause'),
+// audio + menu music need a user gesture
+ui.onAnyClick = () => {
+  audio.init();
+  if (state === 'menu') audio.playMenuMusic();
 };
 
-let chat = null;
-let net = null;
-let localName = localStorage.getItem('nomaerooms.name') || `nomad${Math.floor(Math.random() * 99)}`;
-let inGame = false;
-let paused = false;
-let clarkSpawned = false;
-let lastFootstepT = 0;
-let jumpscareT = 0;
+// ---------- menu actions ----------
 
-$('name-input').value = localName;
-
-$('name-input').addEventListener('change', (e) => {
-  localName = e.target.value.trim() || localName;
-  localStorage.setItem('nomaerooms.name', localName);
-});
-
-// ---- Menu buttons ----------------------------------------------------------
-
-$('btn-solo').addEventListener('click', () => startGame('solo'));
-$('btn-host').addEventListener('click', () => startGame('host'));
-$('btn-join').addEventListener('click', () => {
-  $('join-panel').classList.toggle('hidden');
-});
-$('btn-connect').addEventListener('click', async () => {
-  const code = $('room-input').value.trim();
-  if (!code) return;
-  await startGame('join', code);
-});
-$('btn-leave').addEventListener('click', leaveGame);
-$('btn-credits').addEventListener('click', () => {
-  $('credits').classList.remove('hidden');
-});
-
-// ---- Game flow -------------------------------------------------------------
-
-async function startGame(mode, roomCode = null) {
-  resumeAudio();
-  startHum();
-  tryStartMusic();
-
-  // init net
-  net = new Net({
-    onStatus: (s) => ui.clarkText && (ui.clarkText.textContent = s),
-    onChat: (msg) => chat?.receive(msg, false),
-    onPeerJoin: (peerId, name) => {
-      chat?.system(`${name || 'someone'} joined the room`);
-    },
-    onPeerLeave: (peerId) => {
-      chat?.system(`someone left the room`);
-    },
-    onPosition: (peerId, pos, name) => {
-      net.remotePlayers.set(peerId, { name, pos, lastSeen: performance.now() });
-    },
-  });
-
-  chat = new ChatSystem({
-    ui,
-    net,
-    localName,
-  });
-
+ui.onHost = async () => {
+  ui.setBusy(true);
+  const code = makeRoomCode();
+  const seed = (Math.random() * 0x7fffffff) | 0;
   try {
-    if (mode === 'host') {
-      const code = await net.host();
-      ui.roomCode.textContent = code;
-      chat.system(`hosting room ${code}`);
-    } else if (mode === 'join') {
-      await net.join(roomCode);
-      ui.roomCode.textContent = roomCode.toUpperCase();
-      chat.system(`joined room ${roomCode.toUpperCase()}`);
-    } else {
-      net.role = 'solo';
-      net.peerId = 'local';
-      ui.roomCode.textContent = 'SOLO';
-    }
+    await net.host(code, myProfile(), seed);
+    startGame(seed, code);
   } catch (e) {
-    console.error('[net] start failed', e);
-    alert(`Multiplayer failed to start: ${e.message}\n\nFalling back to solo.`);
-    net.role = 'solo';
-    net.peerId = 'local';
-    ui.roomCode.textContent = 'SOLO';
+    ui.showMenu(e.message);
   }
+};
 
-  menuScreen.classList.add('hidden');
-  hudScreen.classList.remove('hidden');
-  ui.logEl.classList.remove('hidden');
-  ui.roomCode.parentElement.parentElement.classList.remove('hidden');
-  inGame = true;
-  paused = false;
+ui.onJoin = async (rawCode) => {
+  const code = normalizeRoomCode(rawCode);
+  if (code.length !== 6) { ui.showMenu('Enter the 6-character room code.'); return; }
+  ui.setBusy(true);
+  try {
+    const wel = await net.join(code, myProfile());
+    startGame(wel.seed, code);
+    for (const [id, info] of net.peersInfo) {
+      remotes.add(id, info);
+    }
+    ui.setPlayers(net.playerCount());
+  } catch (e) {
+    net.destroy();
+    ui.showMenu(e.message);
+  }
+};
 
-  player.teleport(findSpawnPoint());
-  // Defer pointer-lock until the next real user gesture (browser autoplay policy).
-  // The first click anywhere will lock; the menu button click we just did counts
-  // for SOME browsers but not headless ones.
-  const tryLock = () => {
-    try { dom.requestPointerLock(); } catch {}
-    document.removeEventListener('click', tryLock);
-  };
-  document.addEventListener('click', tryLock, { once: true });
+function myProfile() {
+  myColor = `hsl(${(Math.random() * 360) | 0}, 65%, 62%)`;
+  return { name: ui.playerName(), color: myColor };
 }
 
-function leaveGame() {
-  inGame = false;
-  if (net) { net.leave(); net = null; }
-  if (clarkSpawned) { clark.despawn(); clarkSpawned = false; }
-  stopMusic();
-  player.releaseLock();
-  hudScreen.classList.add('hidden');
-  ui.pause.classList.add('hidden');
-  menuScreen.classList.remove('hidden');
+// ---------- game lifecycle ----------
+
+function startGame(seed, code) {
+  gen.setSeed(seed);
+  const q = graphics.applyQuality(settings.quality, settings.fov);
+  chunks.setRadius(q.chunkRadius);
+  lights.configure(q);
+
+  // spawn near the origin in an open cell, nudged so players don't stack
+  const cell = gen.findOpenCell(0, 0);
+  const c = gen.cellCenter(cell.x, cell.z);
+  player.teleport(
+    c.x + (Math.random() - 0.5) * 1.5,
+    c.z + (Math.random() - 0.5) * 1.5
+  );
+  player.stamina = STAMINA_MAX;
+  player.frozen = false;
+
+  // build the whole initial radius in one go (loading is already shown)
+  chunks.update(player.pos.x, player.pos.z, 999);
+
+  if (net.isHost) {
+    clark.relocateAway([{ x: player.pos.x, z: player.pos.z }]);
+  }
+
+  audio.enterGame();
+  state = 'playing';
+  ui.showGame(code);
+  ui.setPlayers(net.playerCount());
+  ui.addChat(null, net.isHost
+    ? `room ${code} is open — share the code`
+    : 'you noclipped in. find the others.', { system: true });
+  if (!IS_TOUCH) ui.setHint('click to look around');
+  input.requestLock(ui.el.canvas);
 }
 
-// ---- Pause / pointer lock --------------------------------------------------
+function leaveToMenu(message = '') {
+  net.destroy();
+  remotes.clear();
+  clark.active = false;
+  clark.group.visible = false;
+  input.releaseLock();
+  state = 'menu';
+  ui.showMenu(message);
+  audio.playMenuMusic();
+}
 
-document.addEventListener('pointerlockchange', () => {
-  if (!inGame) return;
-  const locked = document.pointerLockElement === dom;
-  if (!locked && !paused) {
-    paused = true;
-    ui.pause.classList.remove('hidden');
-  } else if (locked && paused) {
-    paused = false;
-    ui.pause.classList.add('hidden');
+// ---------- net wiring ----------
+
+net.onPeerJoin = (id, info) => {
+  remotes.add(id, info);
+  ui.setPlayers(net.playerCount());
+  ui.addChat(null, `${info.name} noclipped in`, { system: true });
+  audio.chatPing();
+};
+net.onPeerLeave = (id) => {
+  const name = remotes.map.get(id)?.info.name || 'someone';
+  remotes.remove(id);
+  ui.setPlayers(net.playerCount());
+  ui.addChat(null, `${name} is gone`, { system: true });
+};
+net.onState = (id, msg) => remotes.applyState(id, msg);
+net.onChat = (id, text) => {
+  const name = net.peersInfo.get(id)?.name || remotes.map.get(id)?.info.name || '???';
+  remotes.say(id, text);
+  const dist = remotes.distanceTo(id, graphics.camera.position);
+  const proximity = clamp(1.2 - dist / 30, 0.05, 1);
+  ui.addChat(name, text, { proximity });
+  audio.chatPing();
+};
+net.onClark = (msg) => clark.applyNet(msg, 1 / CLARK_NET_HZ);
+net.onScareRequest = () => hostRelocateClark();   // a guest got caught
+net.onScared = (id) => {
+  const name = net.peersInfo.get(id)?.name || 'someone';
+  ui.addChat(null, `${name} was taken`, { system: true });
+};
+net.onClosed = (reason) => leaveToMenu(reason);
+
+function hostRelocateClark(scaredGuestId = null) {
+  if (!net.isHost) return;
+  const ps = [{ x: player.pos.x, z: player.pos.z }, ...remotes.positions()];
+  clark.relocateAway(ps);
+  net.sendClark(clark.netState());
+  if (scaredGuestId !== null) net.sendScared(scaredGuestId);
+}
+
+// ---------- chat / pause / death ----------
+
+ui.onChatSend = (text) => {
+  net.sendChat(text);
+  ui.addChat(ui.playerName(), text, { proximity: 1 });
+};
+ui.onResume = () => {
+  state = 'playing';
+  ui.hideOverlays();
+  input.requestLock(ui.el.canvas);
+};
+ui.onLeave = () => leaveToMenu();
+ui.onRespawn = () => {
+  // wake up far from where he got you
+  const a = Math.random() * Math.PI * 2;
+  const cx = Math.floor((player.pos.x + Math.cos(a) * 36) / CELL);
+  const cz = Math.floor((player.pos.z + Math.sin(a) * 36) / CELL);
+  const cell = gen.findOpenCell(cx, cz);
+  const c = gen.cellCenter(cell.x, cell.z);
+  player.teleport(c.x, c.z);
+  player.frozen = false;
+  chunks.update(player.pos.x, player.pos.z, 999);
+  fear = 0;
+  state = 'playing';
+  ui.hideOverlays();
+  input.requestLock(ui.el.canvas);
+};
+ui.onSettingsChanged = () => {
+  audio.applyVolumes();
+  if (state !== 'menu' && state !== 'loading') {
+    const q = graphics.applyQuality(settings.quality, settings.fov);
+    chunks.setRadius(q.chunkRadius);
+    lights.configure(q);
   }
+};
+
+input.onLockChange = (locked) => {
+  if (!locked && state === 'playing' && !ui.chatOpen) {
+    state = 'paused';
+    ui.showPause();
+  }
+  if (locked) ui.setHint('');
+};
+
+ui.el.canvas.addEventListener('click', () => {
+  if (state === 'playing' && !input.pointerLocked) input.requestLock(ui.el.canvas);
 });
+
 document.addEventListener('keydown', (e) => {
-  if (!inGame) return;
-  if (e.code === 'Escape' && paused) {
-    dom.requestPointerLock();
-  }
-  if (e.code === 'KeyC') {
-    // toggle credits (works whether paused or playing)
-    const cred = document.getElementById('credits');
-    if (cred) cred.classList.toggle('hidden');
+  if (state === 'playing' && !ui.chatOpen && (e.code === 'KeyT' || e.code === 'Enter')) {
     e.preventDefault();
+    ui.openChat();
+  } else if (state === 'paused' && e.code === 'Escape') {
+    // browsers debounce pointer-lock re-entry; the button handles resume
   }
 });
 
-// ---- Resize ----------------------------------------------------------------
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  fx.resize(window.innerWidth, window.innerHeight);
-});
-
-// ---- Spawn Clark after a delay --------------------------------------------
-
-setTimeout(() => {
-  if (inGame && !clarkSpawned) {
-    clark.spawn(player.pos);
-    clarkSpawned = true;
-    chat?.system('You are not alone.');
-  }
-}, 8000);
-
-// ---- Main loop -------------------------------------------------------------
-
-let last = performance.now();
-let lastPosSent = 0;
-
-function loop(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
-
-  if (inGame && !paused) {
-    // update world streaming
-    updateStreaming(scene, player.pos);
-    tickFlicker(now);
-    updateLights(player.pos);
-
-    // footstep audio
-    const wish = (player._keys.has('KeyW') || player._keys.has('KeyS') ||
-                  player._keys.has('KeyA') || player._keys.has('KeyD') ||
-                  player._keys.has('ArrowUp'));
-    if (wish && player.onGround) {
-      lastFootstepT += dt;
-      const interval = player._keys.has('ShiftLeft') ? 0.32 : 0.42;
-      if (lastFootstepT > interval) { playFootstep(); lastFootstepT = 0; }
-    } else {
-      lastFootstepT = 0;
-    }
-
-    // update player
-    const clarkInfo = clarkSpawned ? clark.update(dt, player.pos) : null;
-    const clarkDist = clarkInfo ? clarkInfo.dist : Infinity;
-    const inLight = (clarkDist < JUMPSCARE_DIST + 5) || isLitArea(player.pos);
-    player.update(dt, { clarkDist, inLight });
-
-    // update HUD bars
-    ui.sanityBar.style.width = `${player.sanity}%`;
-    ui.staminaBar.style.width = `${player.stamina}%`;
-    if (player.sanity < 35) ui.sanityBar.style.background = 'var(--clark-red)';
-    else ui.sanityBar.style.background = 'var(--sanity)';
-    if (player.stamina < 25) ui.staminaBar.style.background = 'var(--clark-red)';
-
-    // Clark proximity warning
-    if (clarkSpawned && clarkDist < 25) {
-      ui.clarkWarning.classList.remove('hidden');
-      if (clarkDist < JUMPSCARE_DIST + 1) {
-        ui.clarkText.textContent = 'HE IS RIGHT BEHIND YOU';
-      } else if (clarkDist < 8) {
-        ui.clarkText.textContent = 'something is close';
-      } else {
-        ui.clarkText.textContent = '...footsteps...';
-      }
-    } else {
-      ui.clarkWarning.classList.add('hidden');
-    }
-
-    // Jumpscare
-    if (clarkInfo && clarkInfo.jumpscare) {
-      if (now - jumpscareT > 5000) {
-        jumpscareT = now;
-        triggerJumpscare();
-      }
-    }
-
-    // send pos to peers (host: 20Hz, client: 10Hz to host only)
-    if (net && net.role !== 'solo' && net.connections.size > 0) {
-      if (now - lastPosSent > 50) {
-        lastPosSent = now;
-        const pos = { x: player.pos.x, y: player.pos.y, z: player.pos.z,
-                      yaw: player.yaw, pitch: player.pitch };
-        if (net.role === 'host') {
-          net.broadcast({ type: 'pos', peerId: net.peerId, pos, name: localName });
-        } else {
-          // client → host
-          for (const c of net.connections.values()) {
-            if (c.open) c.send({ type: 'pos', pos, name: localName });
-          }
-        }
-      }
-    }
-  }
-
-  fx.update(dt);
-  fx.composer.render();
-  requestAnimationFrame(loop);
+if (IS_TOUCH) {
+  const sprintBtn = ui.el.touchSprint;
+  sprintBtn.addEventListener('touchstart', () => input.setSprintTouch(true));
+  sprintBtn.addEventListener('touchend', () => input.setSprintTouch(false));
+  // pause via room chip long-press is overkill; give touch users the players chip
+  ui.el.playersChip.addEventListener('click', () => {
+    if (state === 'playing') { state = 'paused'; ui.showPause(); }
+  });
 }
+
+// ---------- jumpscare ----------
 
 function triggerJumpscare() {
-  // visual: red flash
-  document.body.style.transition = 'none';
-  document.body.style.boxShadow = 'inset 0 0 200px 100px rgba(193, 39, 45, 0.95)';
+  state = 'scare';
+  player.frozen = true;
+  fear = 1;
+  clark.lungeAt(graphics.camera);
+  audio.jumpscare();
+  ui.scareFlash();
+  input.releaseLock();
+  if (net.isHost) {
+    setTimeout(() => hostRelocateClark(), 1100);
+  } else {
+    setTimeout(() => net.requestScare(), 1100);
+  }
   setTimeout(() => {
-    document.body.style.transition = 'box-shadow 0.4s';
-    document.body.style.boxShadow = 'none';
-  }, 100);
-  playJumpscare();
-  chat?.system('⚠ JUMPSCARE');
+    if (state === 'scare') { state = 'dead'; ui.showDeath(); }
+  }, 1500);
 }
 
-function isLitArea(pos) {
-  // quick check: if any room in colliders has its center within ~5 units of the
-  // player, the room's point light (if on) is hitting us. We'll just say "in a
-  // room" = "lit" — the room generation has point lights on by default.
-  // For darkness, we test distance to nearest room edge.
-  return true; // TODO refine: darkness = no nearby room in radius
+// ---------- main loop ----------
+
+player.onFootstep = (sprint) => audio.footstep(sprint);
+
+const clock = new THREE.Clock();
+
+// debug handle (harmless in production; used by automated checks)
+window.__nr = { player, clark, net, chunks, graphics, get state() { return state; } };
+
+function frame() {
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  const inGame = state === 'playing' || state === 'paused' || state === 'dead' || state === 'scare';
+  if (!inGame) return;
+
+  input.enabled = state === 'playing' && !ui.chatOpen;
+  input.update();
+
+  // world + player
+  const colliders = chunks.collidersNear(player.pos.x, player.pos.z);
+  player.update(dt, colliders);
+  chunks.update(player.pos.x, player.pos.z, 1);
+  lights.update(t, player.pos.x, player.pos.z);
+  remotes.update(dt, graphics.camera.position);
+
+  // Clark
+  if (clark.active) {
+    if (net.isHost) {
+      const ps = [{ x: player.pos.x, z: player.pos.z }, ...remotes.positions()];
+      if (state !== 'scare') clark.hostUpdate(dt, ps);
+      clarkAcc += dt;
+      if (clarkAcc >= 1 / CLARK_NET_HZ) {
+        clarkAcc = 0;
+        net.sendClark(clark.netState());
+      }
+    } else if (state !== 'scare') {
+      clark.guestUpdate(dt);
+    }
+    if (state === 'playing' && clark.isScaring(player.pos.x, player.pos.z)) {
+      triggerJumpscare();
+    }
+  }
+
+  // fear: proximity drives the post grade + heartbeat
+  const targetFear = state === 'scare' ? 1 : clark.fearFor(player.pos.x, player.pos.z);
+  fear = damp(fear, targetFear, 3, dt);
+  graphics.setFear(fear);
+
+  // audio: buzz follows the nearest fixture
+  const buzz = clamp(1 - lights.nearestDist / 9, 0, 1) * (0.25 + 0.75 * lights.nearestFlicker);
+  audio.update(t, buzz, fear);
+
+  // network send
+  sendAcc += dt;
+  if (sendAcc >= 1 / NET_SEND_HZ && net.peer) {
+    sendAcc = 0;
+    net.sendState({
+      p: [+player.pos.x.toFixed(3), +player.pos.z.toFixed(3)],
+      ry: +player.yaw.toFixed(3),
+      pi: +player.pitch.toFixed(2),
+      mv: player.moving ? 1 : 0,
+      sp: player.sprinting ? 1 : 0,
+    });
+  }
+
+  // HUD
+  ui.setStamina(player.stamina / STAMINA_MAX);
+
+  graphics.render(t);
 }
-
-requestAnimationFrame(loop);
-
-// ---- Dev console hook (only used for testing) ------------------------------
-// Exposed on window.nomae for headless-browser smoke tests.
-window.nomae = {
-  scene, camera, renderer, player, clark, net, chat, dom,
-  teleportNearClark: (dist = 8) => {
-    if (!clark.alive) clark.spawn(player.pos);
-    const dir = new THREE.Vector3().subVectors(player.pos, clark.group.position).setY(0).normalize();
-    player.pos.copy(clark.group.position).addScaledVector(dir, dist);
-    player.pos.y = 1.6;
-    player.vel.set(0, 0, 0);
-    // face clark
-    const dx = clark.group.position.x - player.pos.x;
-    const dz = clark.group.position.z - player.pos.z;
-    player.yaw = Math.atan2(-dx, -dz);
-    player.pitch = 0;
-  },
-  spawnClarkNear: (dist = 6) => {
-    if (!clark.alive) clark.spawn(player.pos);
-    const a = Math.random() * Math.PI * 2;
-    clark.group.position.set(
-      player.pos.x + Math.cos(a) * dist,
-      0,
-      player.pos.z + Math.sin(a) * dist
-    );
-    clark.alive = true;
-    clark.group.visible = true;
-    if (clark._gltfMesh) clark._gltfMesh.visible = true;
-  },
-};
-
-// ---- Cleanup on unload -----------------------------------------------------
-window.addEventListener('beforeunload', () => {
-  if (net) net.leave();
-  player.dispose();
-  renderer.dispose();
-});
+frame();

@@ -2,126 +2,108 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0a0d06" />
   <title>NomaeROOMS</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23c9a44a'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-size='40' font-family='monospace' fill='%235a3a00'%3E%3F%3C/text%3E%3C/svg%3E" />
-  <link rel="stylesheet" href="/src/ui/styles.css" />
+  <meta name="description" content="A multiplayer Backrooms horror game in your browser. Get lost with friends. Watch out for Pirate Clark." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%231a2012'/><text y='.9em' font-size='80' x='10'>👁</text></svg>" />
 </head>
 <body>
-  <div id="app">
-    <!-- Boot screen -->
-    <div id="boot" class="screen">
-      <div class="boot-card">
-        <pre class="ascii-logo">
- ███╗   ██╗ ██████╗ ███╗   ███╗ █████╗ ███████╗
- ████╗  ██║██╔═══██╗████╗ ████║██╔══██╗██╔════╝
- ██╔██╗ ██║██║   ██║██╔████╔██║███████║█████╗
- ██║╚██╗██║██║   ██║██║╚██╔╝██║██╔══██║██╔══╝
- ██║ ╚████║╚██████╔╝██║ ╚═╝ ██║██║  ██║███████╗
- ╚═╝  ╚═══╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝
-    R  O  O  M  S
-        </pre>
-        <p class="boot-sub">nolooping &middot; nowalls &middot; nodaylight</p>
-        <div class="boot-bar"><div class="boot-bar-fill" id="boot-fill"></div></div>
-        <p class="boot-msg" id="boot-msg">initializing poolrooms…</p>
-      </div>
-    </div>
+  <canvas id="game"></canvas>
 
-    <!-- Main menu -->
-    <div id="menu" class="screen hidden">
-      <div class="menu-card">
-        <h1 class="title">NomaeROOMS</h1>
-        <p class="subtitle">A multiplayer Backrooms experience.</p>
-
-        <div class="form-row">
-          <label for="name-input">Your name</label>
-          <input id="name-input" type="text" maxlength="16" placeholder="nomad" />
-        </div>
-
-        <div class="menu-buttons">
-          <button id="btn-solo" class="btn btn-primary">Play Solo</button>
-          <button id="btn-host" class="btn">Host Room</button>
-          <button id="btn-join" class="btn">Join Room</button>
-          <button id="btn-credits" class="btn btn-tiny" style="margin-top:8px;">Credits &amp; Attribution</button>
-        </div>
-
-        <div id="join-panel" class="hidden">
-          <div class="form-row">
-            <label for="room-input">Room code</label>
-            <input id="room-input" type="text" maxlength="12" placeholder="e.g. NOMAD42" />
-          </div>
-          <button id="btn-connect" class="btn">Connect</button>
-          <p class="hint" id="net-status">PeerJS — connecting to broker…</p>
-        </div>
-
-        <p class="footnote">
-          Arrow keys / WASD to move. Mouse to look. <kbd>Shift</kbd> sprint. <kbd>Space</kbd> jump. <kbd>T</kbd> chat. <kbd>C</kbd> credits. <kbd>Esc</kbd> pause.
-        </p>
-      </div>
-    </div>
-
-    <!-- HUD (in-game) -->
-    <div id="hud" class="hidden">
-      <div id="hud-top">
-        <div id="hud-stats">
-          <div class="stat"><span class="stat-label">SANITY</span><div class="bar"><div id="bar-sanity" class="bar-fill"></div></div></div>
-          <div class="stat"><span class="stat-label">STAMINA</span><div class="bar"><div id="bar-stamina" class="bar-fill"></div></div></div>
-        </div>
-        <div id="hud-room">
-          <span class="lbl">ROOM</span>
-          <span id="room-code">—</span>
-          <span id="player-count">0/0</span>
-        </div>
-      </div>
-
-      <div id="clark-warning" class="hidden">
-        <p id="clark-text">something is close</p>
-      </div>
-
-      <div id="chat-log" class="hidden">
-        <ul id="chat-messages"></ul>
-      </div>
-
-      <div id="chat-input-wrap" class="hidden">
-        <span class="prompt">&gt;</span>
-        <input id="chat-input" type="text" maxlength="140" placeholder="say something…" autocomplete="off" />
-      </div>
-
-      <div id="crosshair"></div>
-
-      <div id="attribution">Pirate Clark © Slightlyoversizedsweater · CC BY 4.0</div>
-
-      <div id="pause" class="hidden">
-        <div class="pause-card">
-          <h2>Paused</h2>
-          <p>Press <kbd>Esc</kbd> to resume.</p>
-          <button id="btn-leave" class="btn">Leave Game</button>
-        </div>
-      </div>
-
-      <div id="credits" class="hidden">
-        <div class="credits-card">
-          <h2>CREDITS</h2>
-          <p class="credits-line"><span class="ck">3D Model — "Pirate Clark (Backrooms)"</span><br>
-            by <a href="https://sketchfab.com/Slightlyoversizedsweater" target="_blank" rel="noopener">Slightlyoversizedsweater</a>
-            · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a></p>
-          <p class="credits-line"><span class="ck">Music — "Backrooms-style ambient"</span><br>
-            via Handprint Media on YouTube · used with attribution</p>
-          <p class="credits-line"><span class="ck">Engine</span><br>
-            Three.js · PeerJS · Vite</p>
-          <p class="hint" style="margin-top:18px;">Press <kbd>C</kbd> to close</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Mobile fallback -->
-    <div id="mobile" class="hidden">
-      <p>This game needs a desktop browser with mouse + keyboard.</p>
-    </div>
-
-    <!-- Three.js canvas mount -->
-    <div id="canvas-mount"></div>
+  <!-- Loading -->
+  <div id="loading" class="screen">
+    <h1 class="logo">Nomae<span>ROOMS</span></h1>
+    <div class="bar"><div id="load-fill"></div></div>
+    <p id="load-tip">waking the fluorescents…</p>
   </div>
+
+  <!-- Main menu -->
+  <div id="menu" class="screen hidden">
+    <h1 class="logo">Nomae<span>ROOMS</span></h1>
+    <p class="tagline">you shouldn't have noclipped here.</p>
+
+    <div class="menu-card">
+      <input id="name-input" maxlength="16" placeholder="your name" autocomplete="off" />
+      <button id="host-btn" class="primary">HOST A ROOM</button>
+      <div class="join-row">
+        <input id="code-input" maxlength="6" placeholder="CODE" autocomplete="off" autocapitalize="characters" />
+        <button id="join-btn">JOIN</button>
+      </div>
+      <button id="settings-btn" class="ghost">settings</button>
+      <p id="menu-error" class="error hidden"></p>
+    </div>
+
+    <footer>
+      WASD move · Shift sprint · T chat · Esc menu<br/>
+      <span class="dim">"Pirate Clark" model © Slightlyoversizedsweater, Sketchfab — CC BY 4.0</span>
+    </footer>
+  </div>
+
+  <!-- Settings -->
+  <div id="settings" class="screen hidden">
+    <div class="menu-card">
+      <h2>settings</h2>
+      <label>quality
+        <select id="set-quality">
+          <option value="low">low</option>
+          <option value="medium" selected>medium</option>
+          <option value="high">high</option>
+        </select>
+      </label>
+      <label>field of view <span id="fov-val"></span>
+        <input id="set-fov" type="range" min="60" max="100" step="1" />
+      </label>
+      <label>mouse sensitivity <span id="sens-val"></span>
+        <input id="set-sens" type="range" min="0.3" max="2.5" step="0.05" />
+      </label>
+      <label>volume <span id="vol-val"></span>
+        <input id="set-vol" type="range" min="0" max="1" step="0.05" />
+      </label>
+      <label>music <span id="music-val"></span>
+        <input id="set-music" type="range" min="0" max="1" step="0.05" />
+      </label>
+      <button id="settings-back" class="primary">done</button>
+    </div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="crosshair"></div>
+    <div id="room-chip" title="click to copy invite code">ROOM <b id="room-code">······</b></div>
+    <div id="players-chip">1 lost</div>
+    <div id="stamina-wrap"><div id="stamina-fill"></div></div>
+    <div id="chat-log"></div>
+    <div id="chat-input-wrap" class="hidden">
+      <input id="chat-input" maxlength="200" placeholder="say something… (Enter to send, Esc to close)" autocomplete="off" />
+    </div>
+    <div id="hint">click to look around</div>
+    <div id="touch-ui" class="hidden">
+      <button id="touch-sprint" class="ui-block">RUN</button>
+      <button id="touch-chat" class="ui-block">CHAT</button>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="pause" class="screen hidden translucent">
+    <div class="menu-card">
+      <h2>paused*</h2>
+      <p class="dim small">*the rooms don't pause. neither does he.</p>
+      <button id="resume-btn" class="primary">RESUME</button>
+      <button id="pause-settings-btn">settings</button>
+      <button id="copy-code-btn">copy room code</button>
+      <button id="leave-btn" class="danger">leave to menu</button>
+    </div>
+  </div>
+
+  <!-- Death -->
+  <div id="death" class="screen hidden">
+    <h1 id="death-title">HE GOT YOU</h1>
+    <p class="dim">you wake up somewhere else. somewhere worse.</p>
+    <button id="respawn-btn" class="primary">GET UP</button>
+  </div>
+
+  <div id="toasts"></div>
 
   <script type="module" src="/src/main.js"></script>
 </body>
