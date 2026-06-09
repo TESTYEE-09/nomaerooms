@@ -1,0 +1,19 @@
+{
+  "name": "nomaerooms",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "NomaeROOMS — a multiplayer Backrooms browser game. Get lost with friends. Watch out for Pirate Clark.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "three": "^0.160.0",
+    "peerjs": "^1.5.4"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
