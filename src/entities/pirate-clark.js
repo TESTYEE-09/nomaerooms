@@ -25,7 +25,7 @@ const USE_GLTF = true; // the GLB ships in the bundle
 const MODEL_URL = './assets/models/pirate-clark.glb';
 
 // ---- AI tuning ----
-const SPEED = 2.6;
+const SPEED = 3.1;
 const SIGHT_RANGE = 80;
 const HEAR_RANGE = 30;
 const STUCK_TIMEOUT = 4.0;
@@ -81,6 +81,7 @@ export class PirateClark {
       // Recompute box after scale to position the model so its feet are at y=0
       const box2 = new THREE.Box3().setFromObject(m);
       m.position.y = -box2.min.y; // feet on the floor
+      this._gltfBaseY = m.position.y;
       this._gltfMesh = m;
       this._gltfAnimations = gltf.animations || [];
       this._gltfMixer = null;
@@ -200,9 +201,10 @@ export class PirateClark {
   }
 
   spawn(spawnPos) {
-    // Spawn 50–80 units away from the player, in a random direction
+    // Spawn 32–55 units away from the player, in a random direction — close
+    // enough that he closes in and is encountered, far enough to be a stalker.
     const a = Math.random() * Math.PI * 2;
-    const d = 50 + Math.random() * 30;
+    const d = 32 + Math.random() * 23;
     this.group.position.set(
       spawnPos.x + Math.cos(a) * d,
       0,
@@ -289,7 +291,8 @@ export class PirateClark {
 
     // anim
     this.group.rotation.y = this.targetHeading;
-    if (this._proxy) {
+    const moving = dist > JUMPSCARE_DIST;
+    if (this._proxy && this._proxy.visible) {
       const swing = Math.sin(this.t * 4) * 0.6;
       this._armL.rotation.x = swing;
       this._armR.rotation.x = -swing;
@@ -297,6 +300,14 @@ export class PirateClark {
       this._legR.rotation.x = swing * 0.5;
       // tilt head occasionally
       this._proxy.children[2].rotation.z = Math.sin(this.t * 0.6) * 0.06;
+    }
+    // GLB has no baked clips → fake a walk so he visibly strides instead of
+    // gliding: bob the body and sway side to side while advancing.
+    if (this._gltfMesh && !this._gltfMixer && this._gltfBaseY != null) {
+      const stride = moving ? 1 : 0;
+      this._gltfMesh.position.y = this._gltfBaseY + Math.abs(Math.sin(this.t * 6.5)) * 0.08 * stride;
+      this._gltfMesh.rotation.z = Math.sin(this.t * 6.5) * 0.05 * stride;
+      this._gltfMesh.rotation.x = -0.04 * stride; // slight forward lean
     }
 
     return { dist, jumpscare: this.jumpscare };

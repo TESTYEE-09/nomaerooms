@@ -7,8 +7,6 @@
 // What flows over the data channel:
 //   - chat messages (broadcast)
 //   - position updates (host broadcasts, clients send to host)
-//   - clip-saved notifications (broadcast)
-//   - clip-share on join (host sends full clip list to each new client)
 //
 // Why a custom server is not required: PeerJS broker is just for signaling.
 // Once WebRTC is up, all traffic is P2P. No game server to host.
@@ -33,8 +31,6 @@ export class Net {
     this.onPeerJoin = opts.onPeerJoin || (() => {});
     this.onPeerLeave = opts.onPeerLeave || (() => {});
     this.onPosition = opts.onPosition || (() => {});
-    this.onClipSaved = opts.onClipSaved || (() => {});
-    this.onSyncClips = opts.onSyncClips || (() => {});
     this.onStatus = opts.onStatus || (() => {});
     this.localPos = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
     this.remotePlayers = new Map(); // peerId → {name, pos, lastSeen}
@@ -158,22 +154,6 @@ export class Net {
         if (this.role === 'host') this.broadcast({ type: 'pos', peerId, pos: data.pos, name: data.name }, peerId);
         break;
       }
-      case 'clip-saved': {
-        this.onClipSaved(data.clip);
-        if (this.role === 'host') this.broadcast({ type: 'clip-saved', clip: data.clip }, peerId);
-        break;
-      }
-      case 'sync-clips': {
-        this.onSyncClips(data.clips);
-        break;
-      }
-      case 'request-clips': {
-        // host only
-        if (this.role === 'host') {
-          this._sendTo(peerId, { type: 'sync-clips', clips: data.clips || [] });
-        }
-        break;
-      }
     }
   }
 
@@ -190,7 +170,6 @@ export class Net {
 
   sendChat(msg) { this.broadcast({ type: 'chat', msg }); }
   sendPos(pos, name) { this.broadcast({ type: 'pos', pos, name }); }
-  sendClipSaved(clip) { this.broadcast({ type: 'clip-saved', clip }); }
 
   setLocalPos(p) { this.localPos = p; }
 

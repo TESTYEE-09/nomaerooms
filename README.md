@@ -3,11 +3,11 @@
 > A multiplayer Backrooms browser game. Get lost with friends. Watch out for Pirate Clark.
 
 A first-person horror/exploration game that runs entirely in the browser. Procedural
-infinite maze of yellow-wallpapered rooms, damp green carpet, and flickering
-fluorescent lights. Play solo or with friends over WebRTC peer-to-peer. Chat with
-your friends in the Backrooms and hear their messages read aloud in your
-selected voice. Run from **Pirate Clark** — the tall dark figure with glowing
-red eyes who stalks you through the corridors.
+infinite maze of green damask-wallpapered rooms, damp green carpet, and flickering
+fluorescent lights, rendered with PBR materials, ACES tone mapping, dynamic shadows
+and a bloom + grain + vignette post-processing stack. Play solo or with friends over
+WebRTC peer-to-peer and text-chat with them as you get lost. Run from **Pirate Clark**
+— the tall dark figure who stalks you through the corridors.
 
 ![NomaeROOMS screenshot](https://raw.githubusercontent.com/TESTYEE-09/nomaerooms/main/.github/screenshot.png)
 
@@ -35,8 +35,6 @@ already configured.
 | `Space` | Jump |
 | `T` | Open chat |
 | `Enter` | Send message |
-| **Save Clip** button | Save the last message as a voice clip |
-| `V` | Replay the last saved clip |
 | `C` | Show credits / attribution |
 | `Esc` | Pause / resume |
 
@@ -44,23 +42,15 @@ already configured.
 
 1. One player clicks **Host Room** — gets a 6-character room code (e.g. `NOMAD42`).
 2. Other players click **Join Room** and type that code.
-3. Chat, position, and saved clips sync over a WebRTC data channel — no
+3. Text chat and position sync over a WebRTC data channel — no
    game server, no ports to forward, no accounts.
 
-Clips saved by anyone in the room are shared with all peers, so the whole group
-ends up with the same library of in-character voice clips to spam at each other.
+## Deployment
 
-## Voice clips (no AI cloning)
-
-The "voice mimic" is **your browser's built-in SpeechSynthesis** with the voice
-you pick in the menu. Every chat message is auto-spoken in-game. Saving a clip
-just stores `{name, text, voiceURI, pitch, rate}` to localStorage and reuses
-the system TTS on replay. The "Bad News / Jester / Cellos / Organ" macOS voices
-are *delightful* for this.
-
-Want **real** voice cloning? Drop in a TTS API call where the `SpeechSynthesisUtterance`
-is created in `src/ui/chat.js::_speak()`. You'll need consent from every speaker
-and a per-speaker voice model.
+A GitHub Actions workflow (`.github/workflows/deploy.yml`) builds the site and
+publishes `dist/` to the `gh-pages` branch on every push to `main`, so the live
+site updates automatically. To deploy by hand, run `npm run build` and serve the
+`dist/` folder on any static host.
 
 ## Assets
 
@@ -81,10 +71,10 @@ on the floor.
 
 ## Tech
 
-- **Three.js** — WebGL renderer, GLTF loader, point lights
-- **PeerJS** — WebRTC peer-to-peer for chat + position + clip sync
+- **Three.js** — WebGL renderer, GLTF loader, PBR materials, dynamic shadows,
+  EffectComposer post-processing (bloom + ACES tone map + vignette/grain grade)
+- **PeerJS** — WebRTC peer-to-peer for text chat + position sync
 - **Vite** — dev server + bundler
-- **SpeechSynthesis API** — built-in browser TTS for "voice mimic"
 - **Web Audio API** — procedural fluorescent hum, sub-bass drone, footsteps,
   jumpscare sting
 
@@ -98,10 +88,13 @@ src/
 ├── entities/
 │   └── pirate-clark.js   ← antagonist AI + GLTF loader
 ├── net/net.js            ← PeerJS host/join
+├── render/postfx.js      ← bloom + tone-map + vignette/grain post pipeline
 ├── ui/
-│   ├── chat.js           ← proxy chat + voice-clip save/replay
+│   ├── chat.js           ← peer-to-peer text chat
 │   └── styles.css        ← Backrooms CSS
-└── world/world.js        ← chunked procedural room generator
+└── world/
+    ├── world.js          ← chunked procedural room generator
+    └── textures.js       ← procedural PBR texture sets (albedo/normal/rough)
 ```
 
 ## License
@@ -115,4 +108,3 @@ distributing commercially.
 - **Pirate Clark (Backrooms)** by [Slightlyoversizedsweater](https://sketchfab.com/Slightlyoversizedsweater)
   on Sketchfab, used under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 - Music via Handprint Media on YouTube, used with attribution.
-- Voices: your browser's system TTS.

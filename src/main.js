@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { Player, PLAYER_EYE_H } from './player.js';
 import { Net } from './net/net.js';
-import { ChatSystem, listVoices } from './ui/chat.js';
+import { ChatSystem } from './ui/chat.js';
 import {
   startHum, resumeAudio, tryStartMusic, playFootstep, playJumpscare,
   setHumIntensity, stopMusic, setMasterVolume,
@@ -112,7 +112,6 @@ const ui = {
   listEl: $('chat-messages'),
   inputEl: $('chat-input'),
   wrapEl: $('chat-input-wrap'),
-  clipBtn: $('chat-clip'),
   sanityBar: $('bar-sanity'),
   staminaBar: $('bar-stamina'),
   roomCode: $('room-code'),
@@ -125,7 +124,6 @@ const ui = {
 let chat = null;
 let net = null;
 let localName = localStorage.getItem('nomaerooms.name') || `nomad${Math.floor(Math.random() * 99)}`;
-let localVoiceURI = localStorage.getItem('nomaerooms.voiceURI') || null;
 let inGame = false;
 let paused = false;
 let clarkSpawned = false;
@@ -133,48 +131,6 @@ let lastFootstepT = 0;
 let jumpscareT = 0;
 
 $('name-input').value = localName;
-
-// populate voice dropdown
-function populateVoices() {
-  const sel = $('voice-select');
-  sel.innerHTML = '';
-  const voices = listVoices();
-  if (voices.length === 0) {
-    const o = document.createElement('option');
-    o.value = '';
-    o.textContent = '(no TTS voices available)';
-    sel.appendChild(o);
-    return;
-  }
-  for (const v of voices) {
-    const o = document.createElement('option');
-    o.value = v.voiceURI;
-    o.textContent = `${v.name} (${v.lang})${v.default ? ' — default' : ''}`;
-    sel.appendChild(o);
-  }
-  if (localVoiceURI && voices.some((v) => v.voiceURI === localVoiceURI)) {
-    sel.value = localVoiceURI;
-  } else if (voices.find((v) => v.default)) {
-    sel.value = voices.find((v) => v.default).voiceURI;
-    localVoiceURI = sel.value;
-  }
-}
-populateVoices();
-// some browsers load voices async
-if ('speechSynthesis' in window) {
-  window.speechSynthesis.onvoiceschanged = populateVoices;
-}
-$('voice-select').addEventListener('change', (e) => {
-  localVoiceURI = e.target.value;
-  localStorage.setItem('nomaerooms.voiceURI', localVoiceURI || '');
-});
-$('voice-test').addEventListener('click', () => {
-  if (!('speechSynthesis' in window)) return;
-  const u = new SpeechSynthesisUtterance(`Hi, I'm ${localName}. Welcome to the Backrooms.`);
-  const v = listVoices().find((vv) => vv.voiceURI === localVoiceURI);
-  if (v) u.voice = v;
-  window.speechSynthesis.speak(u);
-});
 
 $('name-input').addEventListener('change', (e) => {
   localName = e.target.value.trim() || localName;
@@ -211,10 +167,6 @@ async function startGame(mode, roomCode = null) {
     onChat: (msg) => chat?.receive(msg, false),
     onPeerJoin: (peerId, name) => {
       chat?.system(`${name || 'someone'} joined the room`);
-      if (net.role === 'host') {
-        // send full clip list to the new peer
-        net._sendTo(peerId, { type: 'sync-clips', clips: chat?.clips || [] });
-      }
     },
     onPeerLeave: (peerId) => {
       chat?.system(`someone left the room`);
@@ -222,25 +174,12 @@ async function startGame(mode, roomCode = null) {
     onPosition: (peerId, pos, name) => {
       net.remotePlayers.set(peerId, { name, pos, lastSeen: performance.now() });
     },
-    onClipSaved: (clip) => {
-      chat?.clips.push(clip);
-      chat?._toast(`shared clip: ${clip.name}`);
-    },
-    onSyncClips: (clips) => {
-      if (clips && Array.isArray(clips)) {
-        for (const c of clips) {
-          if (!chat.clips.find((x) => x.id === c.id)) chat.clips.push(c);
-        }
-        chat._toast(`synced ${clips.length} clips`);
-      }
-    },
   });
 
   chat = new ChatSystem({
     ui,
     net,
     localName,
-    localVoiceURI,
   });
 
   try {
@@ -252,7 +191,6 @@ async function startGame(mode, roomCode = null) {
       await net.join(roomCode);
       ui.roomCode.textContent = roomCode.toUpperCase();
       chat.system(`joined room ${roomCode.toUpperCase()}`);
-      net._sendTo(net.connections.keys().next().value, { type: 'request-clips' });
     } else {
       net.role = 'solo';
       net.peerId = 'local';

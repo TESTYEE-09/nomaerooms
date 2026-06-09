@@ -94,10 +94,10 @@ function makeWallpaper(size = 512) {
   const height = makeCanvas(size);
   const hctx = height.getContext('2d');
 
-  // base — iconic Backrooms yellow with a faint vertical gradient
+  // sage-green damask base with a faint vertical gradient
   const base = a.createLinearGradient(0, 0, 0, size);
-  base.addColorStop(0, '#e9c66a');
-  base.addColorStop(1, '#d8b352');
+  base.addColorStop(0, '#9aa06f');
+  base.addColorStop(1, '#8e9463');
   a.fillStyle = base;
   a.fillRect(0, 0, size, size);
 
@@ -105,28 +105,58 @@ function makeWallpaper(size = 512) {
   hctx.fillStyle = '#808080';
   hctx.fillRect(0, 0, size, size);
 
-  // vertical wallpaper striping (subtle tonal bands + raised texture)
-  const stripe = size / 16;
-  for (let x = 0; x < size; x += stripe) {
-    if (((x / stripe) | 0) % 2 === 0) {
-      a.fillStyle = 'rgba(255,240,190,0.06)';
-      a.fillRect(x, 0, stripe, size);
-      hctx.fillStyle = 'rgba(255,255,255,0.10)';
-      hctx.fillRect(x, 0, stripe / 2, size);
-      hctx.fillStyle = 'rgba(0,0,0,0.10)';
-      hctx.fillRect(x + stripe / 2, 0, stripe / 2, size);
+  // --- repeating ornamental pattern: vertical stems with stacked up-chevrons.
+  // 16 columns and a 32px vertical period both divide 512, so it tiles cleanly.
+  const COLS = 16;
+  const colW = size / COLS;           // 32
+  const periodY = 32;
+  const chevW = 9;                    // chevron half-width
+  const chevH = 10;                   // chevron height
+
+  // upward chevron stroked on both the albedo (darker olive) and height (raised)
+  const drawChevron = (ctx, cx, cy, style, lw) => {
+    ctx.strokeStyle = style;
+    ctx.lineWidth = lw;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx - chevW, cy);
+    ctx.lineTo(cx, cy - chevH);
+    ctx.lineTo(cx + chevW, cy);
+    ctx.stroke();
+    // small inner chevron for the layered "arrowhead" feel
+    ctx.beginPath();
+    ctx.moveTo(cx - chevW * 0.55, cy + 4);
+    ctx.lineTo(cx, cy - chevH * 0.45 + 4);
+    ctx.lineTo(cx + chevW * 0.55, cy + 4);
+    ctx.stroke();
+  };
+
+  for (let c = 0; c < COLS; c++) {
+    const cx = c * colW + colW / 2;
+    // continuous stem line down each column
+    a.strokeStyle = 'rgba(74, 80, 46, 0.35)';
+    a.lineWidth = 1.5;
+    a.beginPath(); a.moveTo(cx, 0); a.lineTo(cx, size); a.stroke();
+    hctx.strokeStyle = 'rgba(150,150,150,0.6)';
+    hctx.lineWidth = 1.5;
+    hctx.beginPath(); hctx.moveTo(cx, 0); hctx.lineTo(cx, size); hctx.stroke();
+    // stacked chevrons (one period above and below the canvas so it wraps)
+    for (let y = -periodY; y <= size + periodY; y += periodY) {
+      drawChevron(a, cx, y, 'rgba(86, 93, 56, 0.55)', 2.0);
+      drawChevron(hctx, cx, y, 'rgba(180,180,180,0.7)', 2.0);
     }
   }
 
-  // mottled water stains
-  for (let i = 0; i < 60; i++) {
+  // mottled grime / water stains (subtle — this wallpaper is cleaner than the rooms)
+  for (let i = 0; i < 36; i++) {
     const x = Math.random() * size;
     const y = Math.random() * size;
-    const r = size * (0.04 + Math.random() * 0.12);
+    const r = size * (0.04 + Math.random() * 0.11);
     const grad = a.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, 'rgba(96, 66, 16, 0.40)');
-    grad.addColorStop(0.7, 'rgba(110, 80, 24, 0.12)');
-    grad.addColorStop(1, 'rgba(110, 80, 24, 0)');
+    grad.addColorStop(0, 'rgba(56, 60, 26, 0.30)');
+    grad.addColorStop(0.7, 'rgba(60, 66, 30, 0.10)');
+    grad.addColorStop(1, 'rgba(60, 66, 30, 0)');
     a.fillStyle = grad;
     a.beginPath(); a.arc(x, y, r, 0, Math.PI * 2); a.fill();
   }
@@ -136,27 +166,17 @@ function makeWallpaper(size = 512) {
   const gd = grain.data;
   const hd = hctx.getImageData(0, 0, size, size);
   for (let i = 0; i < gd.length; i += 4) {
-    const n = (Math.random() - 0.5) * 18;
+    const n = (Math.random() - 0.5) * 14;
     gd[i] += n; gd[i + 1] += n; gd[i + 2] += n * 0.6;
-    const hn = (Math.random() - 0.5) * 30;
+    const hn = (Math.random() - 0.5) * 22;
     hd.data[i] += hn; hd.data[i + 1] += hn; hd.data[i + 2] += hn;
   }
   a.putImageData(grain, 0, 0);
   hctx.putImageData(hd, 0, 0);
 
-  // scuffs / scratches into the height field
-  hctx.strokeStyle = 'rgba(40,40,40,0.5)';
-  hctx.lineWidth = 1;
-  for (let i = 0; i < 26; i++) {
-    hctx.beginPath();
-    hctx.moveTo(Math.random() * size, Math.random() * size);
-    hctx.lineTo(Math.random() * size, Math.random() * size);
-    hctx.stroke();
-  }
-
   return {
     map: toColorTexture(albedo),
-    normalMap: toDataTexture(heightToNormal(height, 1.4)),
+    normalMap: toDataTexture(heightToNormal(height, 1.2)),
     roughnessMap: toDataTexture(heightToRoughness(height, 0.6, 0.92)),
   };
 }
