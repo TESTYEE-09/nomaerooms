@@ -343,7 +343,7 @@ function frame() {
 
   // network send
   sendAcc += dt;
-  if (sendAcc >= 1 / NET_SEND_HZ && net.peer) {
+  if (sendAcc >= 1 / NET_SEND_HZ && net.ws) {
     sendAcc = 0;
     net.sendState({
       p: [+player.pos.x.toFixed(3), +player.pos.z.toFixed(3)],
