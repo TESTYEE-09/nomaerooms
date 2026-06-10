@@ -15,7 +15,7 @@ import { Clark } from './entities/clark.js';
 import { Net } from './net/net.js';
 import { RemotePlayers } from './net/remotes.js';
 import { loadSettings, settings } from './core/settings.js';
-import { makeRoomCode, normalizeRoomCode, clamp, damp } from './core/utils.js';
+import { clamp, damp } from './core/utils.js';
 import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL } from './core/config.js';
 
 loadSettings();
@@ -37,6 +37,7 @@ let state = 'loading';      // loading | menu | playing | paused | dead | scare
 let fear = 0;
 let sendAcc = 0, clarkAcc = 0;
 let myColor = '#7da2ff';
+const deadPeers = new Set();
 
 // ---------- boot ----------
 
@@ -66,25 +67,14 @@ ui.onAnyClick = () => {
 
 // ---------- menu actions ----------
 
-ui.onHost = async () => {
+const GLOBAL_ROOM = 'NROOMS';
+
+ui.onPlay = async () => {
   ui.setBusy(true);
-  const code = makeRoomCode();
   const seed = (Math.random() * 0x7fffffff) | 0;
   try {
-    await net.host(code, myProfile(), seed);
-    startGame(seed, code);
-  } catch (e) {
-    ui.showMenu(e.message);
-  }
-};
-
-ui.onJoin = async (rawCode) => {
-  const code = normalizeRoomCode(rawCode);
-  if (code.length !== 6) { ui.showMenu('Enter the 6-character room code.'); return; }
-  ui.setBusy(true);
-  try {
-    const wel = await net.join(code, myProfile());
-    startGame(wel.seed, code);
+    const wel = await net.play(GLOBAL_ROOM, myProfile(), seed);
+    startGame(wel.seed || seed, GLOBAL_ROOM);
     for (const [id, info] of net.peersInfo) {
       remotes.add(id, info);
     }
@@ -139,6 +129,7 @@ function startGame(seed, code) {
 function leaveToMenu(message = '') {
   net.destroy();
   remotes.clear();
+  deadPeers.clear();
   clark.active = false;
   clark.group.visible = false;
   input.releaseLock();
@@ -158,10 +149,14 @@ net.onPeerJoin = (id, info) => {
 net.onPeerLeave = (id) => {
   const name = remotes.map.get(id)?.info.name || 'someone';
   remotes.remove(id);
+  deadPeers.delete(id);
   ui.setPlayers(net.playerCount());
   ui.addChat(null, `${name} is gone`, { system: true });
 };
-net.onState = (id, msg) => remotes.applyState(id, msg);
+net.onState = (id, msg) => {
+  remotes.applyState(id, msg);
+  if (msg.dead) deadPeers.add(id); else deadPeers.delete(id);
+};
 net.onChat = (id, text) => {
   const name = net.peersInfo.get(id)?.name || remotes.map.get(id)?.info.name || '???';
   remotes.say(id, text);
@@ -303,8 +298,10 @@ function frame() {
   // Clark
   if (clark.active) {
     if (net.isHost) {
-      const ps = [{ x: player.pos.x, z: player.pos.z }, ...remotes.positions()];
-      if (state !== 'scare') clark.hostUpdate(dt, ps);
+      const selfAlive = state !== 'dead' && state !== 'scare';
+      const allPs = remotes.positions().filter((p) => !deadPeers.has(p.id));
+      if (selfAlive) allPs.unshift({ x: player.pos.x, z: player.pos.z });
+      if (allPs.length && state !== 'scare') clark.hostUpdate(dt, allPs);
       clarkAcc += dt;
       if (clarkAcc >= 1 / CLARK_NET_HZ) {
         clarkAcc = 0;
@@ -352,6 +349,7 @@ function frame() {
       pi: +player.pitch.toFixed(2),
       mv: player.moving ? 1 : 0,
       sp: player.sprinting ? 1 : 0,
+      dead: (state === 'dead' || state === 'scare') ? 1 : 0,
     });
   }
 

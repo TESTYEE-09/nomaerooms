@@ -167,7 +167,7 @@ export class RemotePlayers {
     return a ? camPos.distanceTo(a.group.position) : Infinity;
   }
   positions() {
-    return [...this.map.values()].map((a) => ({ x: a.group.position.x, z: a.group.position.z }));
+    return [...this.map.entries()].map(([id, a]) => ({ id, x: a.group.position.x, z: a.group.position.z }));
   }
   update(dt, camPos) {
     for (const a of this.map.values()) a.update(dt, camPos);

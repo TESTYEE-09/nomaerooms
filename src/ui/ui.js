@@ -28,8 +28,7 @@ export class UI {
     };
 
     // callbacks set by main
-    this.onHost = null;
-    this.onJoin = null;
+    this.onPlay = null;
     this.onResume = null;
     this.onLeave = null;
     this.onRespawn = null;
@@ -49,16 +48,7 @@ export class UI {
 
     e.hostBtn.addEventListener('click', () => {
       this._captureName();
-      this.onHost?.();
-    });
-    const join = () => {
-      this._captureName();
-      this.onJoin?.(e.codeInput.value);
-    };
-    e.joinBtn.addEventListener('click', join);
-    e.codeInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') join(); });
-    e.codeInput.addEventListener('input', () => {
-      e.codeInput.value = e.codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      this.onPlay?.();
     });
 
     // settings

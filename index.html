@@ -25,11 +25,7 @@
 
     <div class="menu-card">
       <input id="name-input" maxlength="16" placeholder="your name" autocomplete="off" />
-      <button id="host-btn" class="primary">HOST A ROOM</button>
-      <div class="join-row">
-        <input id="code-input" maxlength="6" placeholder="CODE" autocomplete="off" autocapitalize="characters" />
-        <button id="join-btn">JOIN</button>
-      </div>
+      <button id="host-btn" class="primary">PLAY</button>
       <button id="settings-btn" class="ghost">settings</button>
       <p id="menu-error" class="error hidden"></p>
     </div>
@@ -70,7 +66,7 @@
   <!-- HUD -->
   <div id="hud" class="hidden">
     <div id="crosshair"></div>
-    <div id="room-chip" title="click to copy invite code">ROOM <b id="room-code">······</b></div>
+    <div id="room-chip" class="hidden"><b id="room-code"></b></div>
     <div id="players-chip">1 lost</div>
     <div id="stamina-wrap"><div id="stamina-fill"></div></div>
     <div id="chat-log"></div>
@@ -91,7 +87,7 @@
       <p class="dim small">*the rooms don't pause. neither does he.</p>
       <button id="resume-btn" class="primary">RESUME</button>
       <button id="pause-settings-btn">settings</button>
-      <button id="copy-code-btn">copy room code</button>
+      <button id="copy-code-btn" class="hidden">copy room code</button>
       <button id="leave-btn" class="danger">leave to menu</button>
     </div>
   </div>

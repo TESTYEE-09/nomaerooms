@@ -101,6 +101,11 @@ export class Net {
       else if (msg.t === 'peer')  this._onPeer(msg);
       else if (msg.t === 'err') {
         console.warn('[net] relay error:', msg.msg);
+        if (this._pendingWel) {
+          const { reject } = this._pendingWel;
+          this._pendingWel = null;
+          reject({ type: 'relay-err', message: msg.msg });
+        }
         this._onRelayErr?.(msg.msg);
       }
     };
@@ -192,7 +197,6 @@ export class Net {
     const ws = await this._open(CONNECT_TIMEOUT_MS);
     this.ws = ws;
     this._bindWs(ws);
-    // Wait for the wel so the game UI knows the host is registered.
     const welP = new Promise((resolve, reject) => {
       this._pendingWel = { resolve, reject };
       setTimeout(() => {
@@ -227,6 +231,18 @@ export class Net {
     });
     this._send({ t: 'join', code, profile });
     return await welP;
+  }
+
+  // Try to join the global room; if it doesn't exist, host it.
+  async play(code, profile, seed) {
+    try {
+      return await this.join(code, profile);
+    } catch (e) {
+      if (this.ws) { try { this.ws.close(); } catch { /* */ } this.ws = null; }
+      this.conns.clear(); this.peersInfo.clear(); this._pendingWel = null;
+      await this.host(code, profile, seed);
+      return { seed, id: this.myId, host: this.hostProfile };
+    }
   }
 
   // ---- game-facing API (same surface as before) ----
