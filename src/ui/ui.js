@@ -5,27 +5,22 @@ import './styles.css';
 import { settings, saveSettings } from '../core/settings.js';
 import { IS_TOUCH } from '../core/input.js';
 
-const $ = (id) => document.getElementById(id);
-
 export class UI {
   constructor() {
-    this.el = {
-      loading: $('loading'), loadFill: $('load-fill'), loadTip: $('load-tip'),
-      menu: $('menu'), nameInput: $('name-input'), hostBtn: $('host-btn'),
-      codeInput: $('code-input'), joinBtn: $('join-btn'), menuError: $('menu-error'),
-      settingsBtn: $('settings-btn'), settings: $('settings'),
-      setQuality: $('set-quality'), setFov: $('set-fov'), setSens: $('set-sens'),
-      setVol: $('set-vol'), setMusic: $('set-music'), settingsBack: $('settings-back'),
-      fovVal: $('fov-val'), sensVal: $('sens-val'), volVal: $('vol-val'), musicVal: $('music-val'),
-      hud: $('hud'), roomChip: $('room-chip'), roomCode: $('room-code'),
-      playersChip: $('players-chip'), staminaWrap: $('stamina-wrap'), staminaFill: $('stamina-fill'),
-      chatLog: $('chat-log'), chatWrap: $('chat-input-wrap'), chatInput: $('chat-input'),
-      hint: $('hint'), touchUi: $('touch-ui'), touchSprint: $('touch-sprint'), touchChat: $('touch-chat'),
-      pause: $('pause'), resumeBtn: $('resume-btn'), pauseSettingsBtn: $('pause-settings-btn'),
-      copyCodeBtn: $('copy-code-btn'), leaveBtn: $('leave-btn'),
-      death: $('death'), respawnBtn: $('respawn-btn'),
-      toasts: $('toasts'), canvas: $('game'),
-    };
+    // Elements are queried lazily via getters to handle deferred module timing
+    this._elCache = {};
+    const $ = (id) => document.getElementById(id);
+    const self = this;
+    this.el = new Proxy({}, {
+      get(_, prop) {
+        if (!(prop in self._elCache)) {
+          const el = $(prop);
+          if (!el && prop !== 'canvas') console.warn('[UI] element not found:', prop);
+          self._elCache[prop] = el;
+        }
+        return self._elCache[prop];
+      }
+    });
 
     // callbacks set by main
     this.onPlay = null;
