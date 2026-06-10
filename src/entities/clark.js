@@ -72,7 +72,10 @@ export class Clark {
     const box = new THREE.Box3().setFromObject(m);
     const size = new THREE.Vector3();
     box.getSize(size);
-    m.scale.setScalar(CLARK_HEIGHT / Math.max(size.x, size.y, size.z));
+    // Normalize by the model's VERTICAL extent so his standing height is exactly
+    // CLARK_HEIGHT. (Using max(x,y,z) let a wide arm-span or odd axis decide the
+    // scale, which left him towering floor-to-ceiling.)
+    m.scale.setScalar(CLARK_HEIGHT / size.y);
     const box2 = new THREE.Box3().setFromObject(m);
     m.position.y = -box2.min.y;
     this._baseY = m.position.y;
