@@ -222,7 +222,7 @@ export class Clark {
   // ---- guest mirror ----
 
   netState() {
-    return { p: [this.pos.x, this.pos.z], h: this.heading, s: this.state, m: this.moveAmount };
+    return { p: [this.pos.x, this.pos.z], h: this.heading, s: this.state, mv: this.moveAmount };
   }
 
   applyNet(msg, lerpTime) {
@@ -233,7 +233,7 @@ export class Clark {
     this.netLerpTime = lerpTime;
     this.netHeadingTo = msg.h;
     this.state = msg.s;
-    this.moveAmount = msg.m;
+    this.moveAmount = msg.mv;
   }
 
   guestUpdate(dt) {

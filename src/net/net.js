@@ -123,7 +123,9 @@ export class Net {
     if (msg.seed !== undefined) this.seed = msg.seed;
     if (msg.host) {
       this.hostProfile = msg.host;
-      this.peersInfo.set('host', msg.host);
+      const hKey = msg.hostId || 'host';
+      this.hostId = hKey;
+      this.peersInfo.set(hKey, msg.host);
     }
     if (Array.isArray(msg.peers)) {
       for (const p of msg.peers) {
@@ -259,8 +261,7 @@ export class Net {
     // conns.size (guests). For a guest this is peersInfo.size (host + other
     // guests, with 'host' counted once).
     if (this.isHost) return 1 + this.conns.size;
-    // peersInfo has host + each other guest.
-    return 1 + (this.peersInfo.has('host') ? this.peersInfo.size - 1 : this.peersInfo.size);
+    return 1 + this.peersInfo.size;
   }
 
   destroy() {
