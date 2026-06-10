@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { mulberry32 } from '../core/utils.js';
 
-const SIZE = 512;
+const SIZE = 1024;
+const DENS = (SIZE / 512) ** 2; // scale point-detail counts with resolution
 
 function makeCanvas() {
   const c = document.createElement('canvas');
@@ -17,7 +18,7 @@ function canvasTexture(c, colorSpace = THREE.SRGBColorSpace) {
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = colorSpace;
-  t.anisotropy = 4;
+  t.anisotropy = 8;
   return t;
 }
 
@@ -46,6 +47,7 @@ function normalFromHeight(heightCanvas, strength = 1.5) {
 }
 
 function noiseOverlay(ctx, rng, count, alpha, dark = true) {
+  count *= DENS;
   for (let i = 0; i < count; i++) {
     const v = dark ? 0 : 255;
     ctx.fillStyle = `rgba(${v},${v},${v},${(rng() * alpha).toFixed(3)})`;
@@ -111,8 +113,10 @@ function makeWallpaper() {
     for (let col = -1; col < 5; col++) {
       const ox = col * step + (row % 2 ? step / 2 : 0);
       const oy = row * step * 0.62;
-      damaskMotif(ctx, ox, oy, step * 0.52, 'rgba(74, 88, 56, 0.85)');
-      damaskMotif(ctx, ox, oy, step * 0.46, 'rgba(95, 110, 72, 0.5)');
+      // layered motif: dark base, mid tone, faint highlight for embossed depth
+      damaskMotif(ctx, ox + 2, oy + 3, step * 0.52, 'rgba(40, 50, 28, 0.9)');
+      damaskMotif(ctx, ox, oy, step * 0.52, 'rgba(78, 94, 56, 0.95)');
+      damaskMotif(ctx, ox - 1, oy - 2, step * 0.46, 'rgba(132, 148, 98, 0.4)');
     }
   }
 
@@ -194,7 +198,7 @@ function makeCarpet() {
   ctx.fillRect(0, 0, SIZE, SIZE);
 
   // fibre mottle
-  for (let i = 0; i < 26000; i++) {
+  for (let i = 0; i < 26000 * DENS; i++) {
     const v = 50 + rng() * 45;
     ctx.fillStyle = `rgba(${v * 0.95 | 0},${v * 0.92 | 0},${v * 0.62 | 0},${0.25 + rng() * 0.3})`;
     ctx.fillRect(rng() * SIZE, rng() * SIZE, 1 + rng() * 2, 1 + rng() * 2);
@@ -267,7 +271,7 @@ function makeCeiling() {
   noiseOverlay(ctx, rng, 6000, 0.08, false);
 
   // tile pinholes
-  for (let i = 0; i < 2600; i++) {
+  for (let i = 0; i < 2600 * DENS; i++) {
     ctx.fillStyle = `rgba(40,38,30,${0.2 + rng() * 0.4})`;
     const x = rng() * SIZE, y = rng() * SIZE;
     ctx.fillRect(x, y, 1.5, 1.5);

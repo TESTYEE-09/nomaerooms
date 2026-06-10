@@ -20,8 +20,8 @@ const MODEL_URL = './assets/models/pirate-clark.glb';
 
 export const STATE = { ROAM: 0, STALK: 1, CHASE: 2 };
 const SPEEDS = { [STATE.ROAM]: 1.1, [STATE.STALK]: 2.3, [STATE.CHASE]: 4.7 };
-const STALK_DIST = 38;
-const CHASE_DIST = 15;
+const STALK_DIST = 55;
+const CHASE_DIST = 18;
 const REPATH_S = 0.7;
 
 export class Clark {
@@ -99,11 +99,11 @@ export class Clark {
     for (let tries = 0; tries < 30; tries++) {
       const ref = players[(Math.random() * players.length) | 0];
       const a = Math.random() * Math.PI * 2;
-      const d = 40 + Math.random() * 30;
+      const d = 22 + Math.random() * 18;
       const wx = ref.x + Math.cos(a) * d;
       const wz = ref.z + Math.sin(a) * d;
       let ok = true;
-      for (const p of players) if (Math.hypot(p.x - wx, p.z - wz) < 35) ok = false;
+      for (const p of players) if (Math.hypot(p.x - wx, p.z - wz) < 16) ok = false;
       if (!ok) continue;
       const c = gen.worldToCell(wx, wz);
       const cell = gen.findOpenCell(c.x, c.z);
@@ -152,8 +152,8 @@ export class Clark {
           const a = Math.random() * Math.PI * 2;
           const d = (6 + Math.random() * 8) * CELL;
           this.roamTarget = {
-            x: this.pos.x * 0.7 + np.x * 0.3 + Math.cos(a) * d,
-            z: this.pos.z * 0.7 + np.z * 0.3 + Math.sin(a) * d,
+            x: this.pos.x * 0.45 + np.x * 0.55 + Math.cos(a) * d,
+            z: this.pos.z * 0.45 + np.z * 0.55 + Math.sin(a) * d,
           };
         }
         goal = gen.worldToCell(this.roamTarget.x, this.roamTarget.z);
