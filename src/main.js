@@ -73,15 +73,18 @@ ui.onPlay = async () => {
   ui.setBusy(true);
   const seed = (Math.random() * 0x7fffffff) | 0;
   try {
+    console.log('[main] calling net.play with seed:', seed);
     const wel = await net.play(GLOBAL_ROOM, myProfile(), seed);
+    console.log('[main] net.play returned:', wel);
     startGame(wel.seed || seed, GLOBAL_ROOM);
     for (const [id, info] of net.peersInfo) {
       remotes.add(id, info);
     }
     ui.setPlayers(net.playerCount());
   } catch (e) {
+    console.error('[main] net.play failed:', e);
     net.destroy();
-    ui.showMenu(e.message);
+    ui.showMenu(net._friendlyErr?.(e) || e?.message || 'Connection failed');
   }
 };
 

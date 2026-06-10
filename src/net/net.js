@@ -236,11 +236,14 @@ export class Net {
   // Try to join the global room; if it doesn't exist, host it.
   async play(code, profile, seed) {
     try {
+      console.log('[net] play: trying join');
       return await this.join(code, profile);
     } catch (e) {
+      console.log('[net] play: join failed, trying host:', e);
       if (this.ws) { try { this.ws.close(); } catch { /* */ } this.ws = null; }
       this.conns.clear(); this.peersInfo.clear(); this._pendingWel = null;
       await this.host(code, profile, seed);
+      console.log('[net] play: host succeeded');
       return { seed, id: this.myId, host: this.hostProfile };
     }
   }
