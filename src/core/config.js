@@ -14,7 +14,7 @@ export const STAMINA_MAX = 100;
 export const STAMINA_DRAIN = 22;  // per second sprinting
 export const STAMINA_REGEN = 14;  // per second resting
 
-export const CLARK_HEIGHT = 2.0;   // tall but clear of doorways and fixtures
+export const CLARK_HEIGHT = 1.9;   // visibly tall, fits in a doorway with a bit of clearance
 export const JUMP_SPEED = 4.6;
 export const GRAVITY = 13.5;
 export const CLARK_SCARE_DIST = 1.9;

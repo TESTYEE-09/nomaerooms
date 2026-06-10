@@ -18,6 +18,14 @@ import * as gen from '../world/generator.js';
 
 const MODEL_URL = './assets/models/pirate-clark.glb';
 
+// The pirate-clark GLB is exported with the model facing its own +X axis
+// (verified in a viewer: at rotation.y=0, Clark's chest points down +X).
+// The pathfinding code computes heading as atan2(dx, dz) — i.e. the angle
+// of the velocity vector measured from +Z toward +X. So when heading=0
+// (moving toward +Z), the model needs an additional -π/2 rotation to put
+// its face along the direction of travel instead of moonwalking sideways.
+const MODEL_FORWARD_OFFSET = -Math.PI / 2;
+
 export const STATE = { ROAM: 0, STALK: 1, CHASE: 2 };
 const SPEEDS = { [STATE.ROAM]: 1.1, [STATE.STALK]: 2.3, [STATE.CHASE]: 4.7 };
 const STALK_DIST = 55;
@@ -53,8 +61,10 @@ export class Clark {
     this._model = null;
 
     // a faint cold light so he reads in dark stretches
+    // (positioned just above his head — at CLARK_HEIGHT — so it always rides
+    //  with him, not floating overhead)
     const aura = new THREE.PointLight(0x4a3050, 2.5, 7, 1.8);
-    aura.position.y = 2.0;
+    aura.position.y = 1.9;
     this.group.add(aura);
   }
 
@@ -240,7 +250,7 @@ export class Clark {
   }
 
   _animate(dt) {
-    this.group.rotation.y = this.heading;
+    this.group.rotation.y = this.heading + MODEL_FORWARD_OFFSET;
     if (!this._model) return;
     const k = this.moveAmount;
     if (this._mixer) {
@@ -289,7 +299,7 @@ export class Clark {
     );
     this.pos.copy(this.group.position);
     this.heading = Math.atan2(-dir.x, -dir.z);
-    this.group.rotation.y = this.heading;
+    this.group.rotation.y = this.heading + MODEL_FORWARD_OFFSET;
     this.moveAmount = 0;
     if (this._walk) this._walk.timeScale = 0;
   }
