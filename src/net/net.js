@@ -48,24 +48,24 @@ export class Net {
 
   _newPeer(id, serverOpts) {
     // School/corporate networks often block UDP and non-443 traffic, which
-    // kills plain STUN. Free TURN relays (Open Relay) over TCP/443 give the
-    // connection a fallback path through almost any firewall.
+    // kills plain STUN. Free TURN relays give the connection a fallback path
+    // through restrictive firewalls. (openrelay.metered.ca is dead — the Open
+    // Relay project shut down — so it was replaced with live free relays.)
     return new Peer(id, {
       debug: 1,
       ...serverOpts,
       config: {
         iceServers: [
-          { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-          { urls: 'stun:openrelay.metered.ca:80' },
+          { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
           {
-            urls: [
-              'turn:openrelay.metered.ca:80',
-              'turn:openrelay.metered.ca:443',
-              'turn:openrelay.metered.ca:443?transport=tcp',
-              'turns:openrelay.metered.ca:443',
-            ],
-            username: 'openrelayproject',
-            credential: 'openrelayproject',
+            urls: ['turn:freeturn.net:3478', 'turn:freeturn.net:3478?transport=tcp', 'turns:freeturn.tel:5349'],
+            username: 'free',
+            credential: 'free',
+          },
+          {
+            urls: ['turn:freestun.net:3478', 'turns:freestun.net:5350'],
+            username: 'free',
+            credential: 'free',
           },
         ],
         iceCandidatePoolSize: 4,
