@@ -16,6 +16,14 @@ import Peer from 'peerjs';
 
 const PREFIX = 'nmr2-';
 
+// Signaling servers, tried in order. Host settles on the first that works;
+// guests probe each one looking for the room. All speak the PeerJS protocol
+// over wss on 443, which is the most likely thing to survive a school filter.
+const SERVERS = [
+  { name: 'peerjs-cloud', opts: {} }, // official 0.peerjs.com
+  { name: '92k-relay', opts: { host: 'peerjs.92k.de', port: 443, secure: true } },
+];
+
 export class Net {
   constructor() {
     this.peer = null;
@@ -38,12 +46,13 @@ export class Net {
     this.onClosed = null;        // (reason) — we lost the session
   }
 
-  _newPeer(id) {
+  _newPeer(id, serverOpts) {
     // School/corporate networks often block UDP and non-443 traffic, which
     // kills plain STUN. Free TURN relays (Open Relay) over TCP/443 give the
     // connection a fallback path through almost any firewall.
     return new Peer(id, {
       debug: 1,
+      ...serverOpts,
       config: {
         iceServers: [
           { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -64,23 +73,46 @@ export class Net {
     });
   }
 
-  host(code, profile, seed) {
+  // Open a Peer on one signaling server; resolve once registered, reject on
+  // error or timeout (destroying the peer). Both sides must end up on the
+  // SAME server to find each other, so guests probe the list in order.
+  _openPeer(id, serverOpts, timeoutMs = 9000) {
+    return new Promise((resolve, reject) => {
+      const peer = this._newPeer(id, serverOpts);
+      let done = false;
+      const timer = setTimeout(() => {
+        if (!done) { done = true; try { peer.destroy(); } catch { /* */ } reject({ type: 'timeout' }); }
+      }, timeoutMs);
+      peer.on('error', (e) => {
+        if (!done) { done = true; clearTimeout(timer); try { peer.destroy(); } catch { /* */ } reject(e); }
+      });
+      peer.on('open', () => {
+        if (!done) { done = true; clearTimeout(timer); resolve(peer); }
+      });
+    });
+  }
+
+  async host(code, profile, seed) {
     this.isHost = true;
     this.code = code;
     this.seed = seed;
-    return new Promise((resolve, reject) => {
-      const peer = this._newPeer(PREFIX + code);
-      this.peer = peer;
-      const fail = (e) => reject(new Error(this._friendlyErr(e)));
-      peer.on('error', fail);
-      peer.on('open', (id) => {
-        this.myId = id;
-        peer.off('error', fail);
+    let lastErr = { type: 'network' };
+    for (const srv of SERVERS) {
+      try {
+        const peer = await this._openPeer(PREFIX + code, srv.opts);
+        this.peer = peer;
+        this.myId = peer.id;
+        this.serverName = srv.name;
         peer.on('error', (e) => console.warn('[net]', e.type, e.message));
         peer.on('connection', (conn) => this._hostAccept(conn, profile));
-        resolve();
-      });
-    });
+        console.log('[net] hosting via', srv.name);
+        return;
+      } catch (e) {
+        console.warn('[net] host failed on', srv.name, e?.type);
+        lastErr = e;
+      }
+    }
+    throw new Error(this._friendlyErr(lastErr));
   }
 
   _hostAccept(conn, profile) {
@@ -128,39 +160,59 @@ export class Net {
     }
   }
 
-  join(code, profile) {
+  async join(code, profile) {
     this.isHost = false;
     this.code = code;
+    let lastErr = { type: 'peer-unavailable' };
+    for (const srv of SERVERS) {
+      let peer = null;
+      try {
+        peer = await this._openPeer(undefined, srv.opts);
+        const wel = await this._joinVia(peer, code, profile, 9000);
+        this.peer = peer;
+        this.serverName = srv.name;
+        console.log('[net] joined via', srv.name);
+        return wel;
+      } catch (e) {
+        console.warn('[net] join failed on', srv.name, e?.type);
+        lastErr = e;
+        try { peer?.destroy(); } catch { /* */ }
+        this.hostConn = null;
+      }
+    }
+    throw new Error(this._friendlyErr(lastErr));
+  }
+
+  _joinVia(peer, code, profile, timeoutMs) {
     return new Promise((resolve, reject) => {
-      const peer = this._newPeer(undefined);
-      this.peer = peer;
       let settled = false;
-      const fail = (e) => { if (!settled) { settled = true; reject(new Error(this._friendlyErr(e))); } };
+      const fail = (e) => { if (!settled) { settled = true; reject(e); } };
+      const timer = setTimeout(() => fail({ type: 'timeout' }), timeoutMs);
       peer.on('error', fail);
-      const timer = setTimeout(() => fail({ type: 'timeout' }), 12000);
-      peer.on('open', () => {
-        const conn = peer.connect(PREFIX + code, { reliable: true });
-        this.hostConn = conn;
-        conn.on('open', () => conn.send({ t: 'hi', ...profile }));
-        conn.on('data', (msg) => {
-          if (msg?.t === 'wel' && !settled) {
-            settled = true;
-            clearTimeout(timer);
-            this.myId = msg.id;
-            this.seed = msg.seed;
-            for (const p of msg.peers) if (p.id !== msg.id) this.peersInfo.set(p.id, p);
-            this.peersInfo.set('host', msg.host);
-            peer.off('error', fail);
-            peer.on('error', (e) => console.warn('[net]', e.type, e.message));
-            resolve(msg);
-          } else {
-            this._guestRoute(msg);
-          }
-        });
-        const closed = () => { if (settled) this.onClosed?.('Lost connection to the host.'); else fail({ type: 'closed' }); };
-        conn.on('close', closed);
-        conn.on('error', closed);
+      const conn = peer.connect(PREFIX + code, { reliable: true });
+      this.hostConn = conn;
+      conn.on('open', () => conn.send({ t: 'hi', ...profile }));
+      conn.on('data', (msg) => {
+        if (msg?.t === 'wel' && !settled) {
+          settled = true;
+          clearTimeout(timer);
+          this.myId = msg.id;
+          this.seed = msg.seed;
+          for (const p of msg.peers) if (p.id !== msg.id) this.peersInfo.set(p.id, p);
+          this.peersInfo.set('host', msg.host);
+          peer.off('error', fail);
+          peer.on('error', (e) => console.warn('[net]', e.type, e.message));
+          resolve(msg);
+        } else if (settled) {
+          this._guestRoute(msg);
+        }
       });
+      const closed = () => {
+        if (settled) this.onClosed?.('Lost connection to the host.');
+        else fail({ type: 'closed' });
+      };
+      conn.on('close', closed);
+      conn.on('error', closed);
     });
   }
 
