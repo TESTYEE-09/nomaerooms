@@ -4061,7 +4061,7 @@ void main() {
 
 			#endif
 
-		}`};class $x extends Oi{constructor(){super();const e=Yx;this.uniforms=Hn.clone(e.uniforms),this.material=new tx({name:e.name,uniforms:this.uniforms,vertexShader:e.vertexShader,fragmentShader:e.fragmentShader}),this.fsQuad=new Ro(this.material),this._outputColorSpace=null,this._toneMapping=null}render(e,t,n){this.uniforms.tDiffuse.value=n.texture,this.uniforms.toneMappingExposure.value=e.toneMappingExposure,(this._outputColorSpace!==e.outputColorSpace||this._toneMapping!==e.toneMapping)&&(this._outputColorSpace=e.outputColorSpace,this._toneMapping=e.toneMapping,this.material.defines={},Ze.getTransfer(this._outputColorSpace)===ct&&(this.material.defines.SRGB_TRANSFER=""),this._toneMapping===hu?this.material.defines.LINEAR_TONE_MAPPING="":this._toneMapping===uu?this.material.defines.REINHARD_TONE_MAPPING="":this._toneMapping===fu?this.material.defines.CINEON_TONE_MAPPING="":this._toneMapping===rc?this.material.defines.ACES_FILMIC_TONE_MAPPING="":this._toneMapping===du&&(this.material.defines.AGX_TONE_MAPPING=""),this.material.needsUpdate=!0),this.renderToScreen===!0?(e.setRenderTarget(null),this.fsQuad.render(e)):(e.setRenderTarget(t),this.clear&&e.clear(e.autoClearColor,e.autoClearDepth,e.autoClearStencil),this.fsQuad.render(e))}dispose(){this.material.dispose(),this.fsQuad.dispose()}}const It=4,As=3.1,Ci=.32,qs=8,mt=It*qs,no=1.62,Kx=.34,Jx=3.5,Ih=6,nr=100,Zx=22,Qx=14,ey=2.3,ty=4.6,ny=13.5,iy=1.9,sy=12,gf=10,Dh={low:{chunkRadius:1,lights:5,shadowLights:1,shadowMap:512,ssao:!1,bloom:!0,pixelRatio:1,fogDensity:.075},medium:{chunkRadius:2,lights:8,shadowLights:2,shadowMap:1024,ssao:!0,bloom:!0,pixelRatio:1.25,fogDensity:.055},high:{chunkRadius:2,lights:12,shadowLights:4,shadowMap:1024,ssao:!0,bloom:!0,pixelRatio:2,fogDensity:.05}},ry={uniforms:{tDiffuse:{value:null},time:{value:0},grain:{value:.085},vignette:{value:1.05},fear:{value:0},aberration:{value:.0014}},vertexShader:`
+		}`};class $x extends Oi{constructor(){super();const e=Yx;this.uniforms=Hn.clone(e.uniforms),this.material=new tx({name:e.name,uniforms:this.uniforms,vertexShader:e.vertexShader,fragmentShader:e.fragmentShader}),this.fsQuad=new Ro(this.material),this._outputColorSpace=null,this._toneMapping=null}render(e,t,n){this.uniforms.tDiffuse.value=n.texture,this.uniforms.toneMappingExposure.value=e.toneMappingExposure,(this._outputColorSpace!==e.outputColorSpace||this._toneMapping!==e.toneMapping)&&(this._outputColorSpace=e.outputColorSpace,this._toneMapping=e.toneMapping,this.material.defines={},Ze.getTransfer(this._outputColorSpace)===ct&&(this.material.defines.SRGB_TRANSFER=""),this._toneMapping===hu?this.material.defines.LINEAR_TONE_MAPPING="":this._toneMapping===uu?this.material.defines.REINHARD_TONE_MAPPING="":this._toneMapping===fu?this.material.defines.CINEON_TONE_MAPPING="":this._toneMapping===rc?this.material.defines.ACES_FILMIC_TONE_MAPPING="":this._toneMapping===du&&(this.material.defines.AGX_TONE_MAPPING=""),this.material.needsUpdate=!0),this.renderToScreen===!0?(e.setRenderTarget(null),this.fsQuad.render(e)):(e.setRenderTarget(t),this.clear&&e.clear(e.autoClearColor,e.autoClearDepth,e.autoClearStencil),this.fsQuad.render(e))}dispose(){this.material.dispose(),this.fsQuad.dispose()}}const It=4,As=3.1,Ci=.32,qs=8,mt=It*qs,no=1.62,Kx=.34,Jx=3.5,Ih=6,nr=100,Zx=22,Qx=14,ey=2,ty=4.6,ny=13.5,iy=1.9,sy=12,gf=10,Dh={low:{chunkRadius:1,lights:5,shadowLights:1,shadowMap:512,ssao:!1,bloom:!0,pixelRatio:1,fogDensity:.075},medium:{chunkRadius:2,lights:8,shadowLights:2,shadowMap:1024,ssao:!0,bloom:!0,pixelRatio:1.25,fogDensity:.055},high:{chunkRadius:2,lights:12,shadowLights:4,shadowMap:1024,ssao:!0,bloom:!0,pixelRatio:2,fogDensity:.05}},ry={uniforms:{tDiffuse:{value:null},time:{value:0},grain:{value:.085},vignette:{value:1.05},fear:{value:0},aberration:{value:.0014}},vertexShader:`
     varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -4071,33 +4071,67 @@ void main() {
     uniform float time, grain, vignette, fear, aberration;
     varying vec2 vUv;
 
+    const vec3 LUMA = vec3(0.299, 0.587, 0.114);
+
     float rand(vec2 co) {
       return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
     }
 
     void main() {
       vec2 uv = vUv;
+      float t = time;
+
+      // --- tape transport: subtle frame jitter + per-scanline wobble
+      uv.y += (rand(vec2(floor(t * 13.0), 7.0)) - 0.5) * 0.0018;
+      float line = floor(uv.y * 486.0);
+      float frameSlot = floor(t * 18.0);
+      uv.x += (rand(vec2(line, frameSlot)) - 0.5) * 0.0012 * (1.0 + fear * 2.5);
+
+      // --- tracking tear: a distorted band that occasionally rolls through
+      float roll = fract(t * 0.11);
+      float tear = 1.0 - smoothstep(0.0, 0.035, abs(uv.y - roll));
+      float tearOn = step(0.55, rand(vec2(floor(t * 0.11), 3.0))); // most rolls skipped
+      uv.x += tear * tearOn * (rand(vec2(line, floor(t * 60.0))) - 0.35) * 0.06;
+
       vec2 c = uv - 0.5;
       float r2 = dot(c, c);
 
-      // fear warps the frame: stronger aberration + slight pulse zoom
-      float ab = aberration * (1.0 + fear * 6.0) * (0.5 + r2 * 4.0);
-      vec2 dir = normalize(c + 1e-6);
-      vec3 col;
-      col.r = texture2D(tDiffuse, uv + dir * ab).r;
-      col.g = texture2D(tDiffuse, uv).g;
-      col.b = texture2D(tDiffuse, uv - dir * ab).b;
+      // --- luma sharp / chroma soft (VHS colour-under), plus fear aberration
+      float ab = aberration * (1.0 + fear * 6.0) * (0.6 + r2 * 4.0);
+      vec3 sharp;
+      sharp.r = texture2D(tDiffuse, uv + vec2(ab * 2.2, 0.0)).r;
+      sharp.g = texture2D(tDiffuse, uv).g;
+      sharp.b = texture2D(tDiffuse, uv - vec2(ab * 2.2, 0.0)).b;
+      vec3 soft = (
+        texture2D(tDiffuse, uv + vec2(0.0042, 0.0)).rgb +
+        texture2D(tDiffuse, uv - vec2(0.0028, 0.0)).rgb
+      ) * 0.5;
+      float luma = dot(sharp, LUMA);
+      vec3 chroma = soft - dot(soft, LUMA);
+      vec3 col = vec3(luma) + chroma * 1.15;
 
-      // film grain (animated)
-      float g = (rand(uv * vec2(1920.0, 1080.0) + fract(time) * 43.0) - 0.5) * grain;
-      col += g * (0.6 + r2 * 2.0);
+      // --- scanlines (interlace shimmer)
+      col *= 0.93 + 0.07 * sin(vUv.y * 486.0 * 3.14159 + step(0.5, fract(t * 30.0)) * 3.14159);
 
-      // vignette, tightens with fear
+      // --- tape noise: speckle, brighter inside the tear band
+      float n = rand(uv * vec2(1920.0, 1080.0) + fract(t) * 43.0);
+      col += (n - 0.5) * grain * (1.0 + tear * tearOn * 5.0);
+
+      // --- dropout streaks: rare bright horizontal scratches
+      float dropSeed = rand(vec2(line, floor(t * 24.0)));
+      float drop = step(0.9965, dropSeed) * step(rand(vec2(uv.x * 7.0, line)), 0.55);
+      col += drop * 0.4;
+
+      // --- head-switching noise at the very bottom of the frame
+      float hs = smoothstep(0.012, 0.0, vUv.y);
+      col = mix(col, vec3(rand(vec2(uv.x * 160.0, floor(t * 50.0)))) * 0.6, hs * 0.8);
+
+      // --- vignette, tightens with fear
       float v = smoothstep(0.95, 0.32 - fear * 0.18, r2 * (vignette + fear * 0.9));
       col *= mix(0.32, 1.0, v);
 
-      // fear drains colour and pushes red into the edges
-      float grey = dot(col, vec3(0.299, 0.587, 0.114));
+      // --- fear drains colour and pushes red into the edges
+      float grey = dot(col, LUMA);
       col = mix(col, vec3(grey), fear * 0.45);
       col.r += fear * r2 * 0.55;
 
