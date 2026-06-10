@@ -1,260 +1,276 @@
-// P2P networking over PeerJS (WebRTC, public broker, no backend).
+// NomaeROOMS network — WebSocket client to a relay server.
 //
-// Star topology: the host's peer id encodes the room code; guests connect to
-// it and the host relays. The host also owns the world seed and Clark.
+// The game used to do P2P over PeerJS with a star topology (host as
+// rendezvous point + direct WebRTC to each guest). That kept failing on
+// networks with restricted NAT: the PeerJS Cloud broker would lose track
+// of hosts, and even when both sides "found" each other, WebRTC ICE
+// couldn't punch a hole and the data channel just closed.
 //
-// Wire messages (JSON over DataConnection):
-//   guest→host  hi    {name, color}
-//   host→guest  wel   {id, seed, peers:[{id,name,color}], host:{name,color}}
-//   both        st    {id?, p:[x,y? no — x,z], ry, pi, mv, sp}   (position state)
-//   both        chat  {id?, text}
-//   host→all    join  {id, name, color} / leave {id}
-//   host→all    ck    {...clark}  /  scared {id}
-//   guest→host  scare {}
+// The new architecture: every client opens a single outbound wss:// to a
+// public relay (Render WebSocket service, see the nomaerooms-relay repo).
+// The relay sits in the middle and forwards JSON messages. No P2P, no
+// TURN, no NAT traversal. Both host and guest just need a working HTTPS
+// egress to the relay (port 443, which almost every network allows).
+//
+// Wire protocol (text frames over a single WebSocket, JSON):
+//   client→relay  {t:"host", code, seed, profile}        register as host of room
+//   client→relay  {t:"join", code, profile}              register as guest
+//   client→relay  {t:"leave"}                            leave current room
+//   client→relay  {t:"relay", to?, m:"st"|"chat"|..., ...payload}
+//                  forward a game message (m is the game type; everything
+//                  else in the message is game data). Omit `to` to broadcast
+//                  to the opposite role.
+//   relay→client  {t:"wel", id, code, seed?, host?, peers}   host or guest welcome
+//   relay→client  {t:"join", id, name, color}            someone joined
+//   relay→client  {t:"leave", id}                        someone left
+//   relay→client  {t:"peer", from, m, ...payload}        forwarded game message
+//   relay→client  {t:"err", msg}                         error
+//
+// The on-disk game protocol is unchanged: messages from the host (other
+// than the wel) are wrapped as {t:"peer", from:<hostId>, m:"st", ...etc};
+// we unwrap them here so the rest of the game code (onState, onChat,
+// onClark, onScared) keeps working without modification.
+//
+// Why `m` for the inner game type: the relay strips the client's `t` (it
+// was the "relay" command, meaningless to recipients) and adds its own
+// `t:"peer"`. If we reused `t` for the inner game type, the relay's
+// `t:"peer"` wrapper would clobber it. `m` sidesteps that cleanly.
 
-import Peer from 'peerjs';
-
-const PREFIX = 'nmr2-';
-
-// Signaling servers, tried in order. Host settles on the first that works;
-// guests probe each one looking for the room. All speak the PeerJS protocol
-// over wss on 443, which is the most likely thing to survive a school filter.
-const SERVERS = [
-  { name: 'peerjs-cloud', opts: {} }, // official 0.peerjs.com
-  { name: '92k-relay', opts: { host: 'peerjs.92k.de', port: 443, secure: true } },
-];
+const RELAY_URL = (import.meta.env?.VITE_RELAY_URL) || 'wss://nomaerooms-relay.onrender.com';
+// 9 seconds end-to-end: 3s TCP/WS connect + 3s registration + 3s peer message roundtrip
+const CONNECT_TIMEOUT_MS = 9000;
 
 export class Net {
   constructor() {
-    this.peer = null;
+    this.ws = null;
     this.isHost = false;
     this.code = null;
     this.myId = null;
-    this.conns = new Map();      // host: guestId -> conn
-    this.hostConn = null;        // guest: conn to host
+    this.conns = new Map();      // host: guestId -> (set membership flag, we don't track per-conn)
+    this.hostConn = null;        // guest: "the relay conn" (we just keep a flag for compat)
     this.peersInfo = new Map();  // id -> {name, color}
     this.seed = 0;
+    this.hostProfile = null;     // host: stored from host(); guest: from wel
 
     // callbacks (wired by main)
-    this.onPeerJoin = null;      // (id, info)
-    this.onPeerLeave = null;     // (id)
-    this.onState = null;         // (id, msg)
-    this.onChat = null;          // (id, text)
-    this.onClark = null;         // (msg)
-    this.onScareRequest = null;  // host only: (id)
-    this.onScared = null;        // (id) someone got got
-    this.onClosed = null;        // (reason) — we lost the session
+    this.onPeerJoin = null;
+    this.onPeerLeave = null;
+    this.onState = null;
+    this.onChat = null;
+    this.onClark = null;
+    this.onScareRequest = null;
+    this.onScared = null;
+    this.onClosed = null;
   }
 
-  _newPeer(id, serverOpts) {
-    // School/corporate networks often block UDP and non-443 traffic, which
-    // kills plain STUN. TURN relays give the connection a fallback path
-    // through restrictive firewalls.
-    //
-    // The PeerJS library ships with its own built-in TURN at
-    //   turn:eu-0.turn.peerjs.com:3478 / turn:us-0.turn.peerjs.com:3478
-    //   username "peerjs"  credential "peerjsp"
-    // Any `config` we pass to the Peer constructor REPLACES the default
-    // iceServers, so we must include that TURN explicitly — otherwise we
-    // lose the only TURN that actually has working credentials and the
-    // game becomes unplayable on restricted networks. The previous
-    // attempts (freeturn.net, freeturn.tel) are dead domains and the
-    // openrelay.metered.ca replacement requires per-user auth, so we no
-    // longer bother with them here.
-    return new Peer(id, {
-      debug: 1,
-      ...serverOpts,
-      config: {
-        iceServers: [
-          // Public STUN — works for the ~80% of clients on cone NAT.
-          { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
-          // PeerJS Cloud TURN — the canonical working fallback. Keep
-          // these entries first so they're tried before any regional
-          // relays; the credential is the well-known public one for
-          // free peer-to-peer traffic.
-          {
-            urls: [
-              'turn:eu-0.turn.peerjs.com:3478',
-              'turn:eu-0.turn.peerjs.com:3478?transport=tcp',
-              'turn:us-0.turn.peerjs.com:3478',
-              'turn:us-0.turn.peerjs.com:3478?transport=tcp',
-            ],
-            username: 'peerjs',
-            credential: 'peerjsp',
-          },
-          // freestun.net is still alive (Cloudflare-fronted); keep as a
-          // last-resort regional fallback. Uses its own public "free"
-          // credentials (low-volume use only).
-          {
-            urls: ['turn:freestun.net:3478', 'turns:freestun.net:5350'],
-            username: 'free',
-            credential: 'free',
-          },
-        ],
-        iceCandidatePoolSize: 4,
-      },
-    });
-  }
+  // -------- low-level ws helpers --------
 
-  // Open a Peer on one signaling server; resolve once registered, reject on
-  // error or timeout (destroying the peer). Both sides must end up on the
-  // SAME server to find each other, so guests probe the list in order.
-  _openPeer(id, serverOpts, timeoutMs = 9000) {
+  _open(timeoutMs) {
     return new Promise((resolve, reject) => {
-      const peer = this._newPeer(id, serverOpts);
+      let ws;
+      try { ws = new WebSocket(RELAY_URL); }
+      catch (e) { return reject({ type: 'network', message: e?.message }); }
       let done = false;
-      const timer = setTimeout(() => {
-        if (!done) { done = true; try { peer.destroy(); } catch { /* */ } reject({ type: 'timeout' }); }
+      const t = setTimeout(() => {
+        if (done) return;
+        done = true;
+        try { ws.close(); } catch { /* */ }
+        reject({ type: 'timeout' });
       }, timeoutMs);
-      peer.on('error', (e) => {
-        if (!done) { done = true; clearTimeout(timer); try { peer.destroy(); } catch { /* */ } reject(e); }
-      });
-      peer.on('open', () => {
-        if (!done) { done = true; clearTimeout(timer); resolve(peer); }
-      });
+      ws.onopen = () => { if (done) return; done = true; clearTimeout(t); resolve(ws); };
+      ws.onerror = () => { if (done) return; done = true; clearTimeout(t); reject({ type: 'network' }); };
     });
   }
+
+  _send(msg) {
+    if (this.ws?.readyState === 1) {
+      try { this.ws.send(JSON.stringify(msg)); return true; } catch { /* */ }
+    }
+    return false;
+  }
+
+  _bindWs(ws) {
+    ws.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (!msg || typeof msg.t !== 'string') return;
+
+      if (msg.t === 'wel')      this._onWel(msg);
+      else if (msg.t === 'join')  this._onJoin(msg);
+      else if (msg.t === 'leave') this._onLeave(msg);
+      else if (msg.t === 'peer')  this._onPeer(msg);
+      else if (msg.t === 'err') {
+        console.warn('[net] relay error:', msg.msg);
+        this._onRelayErr?.(msg.msg);
+      }
+    };
+    ws.onclose = () => {
+      const wasOpen = this.ws === ws;
+      this.ws = null;
+      if (wasOpen) this.onClosed?.('Lost connection to the relay.');
+    };
+    ws.onerror = (e) => console.warn('[net] ws error', e?.message || e);
+  }
+
+  // -------- handlers --------
+
+  // The host's first response: {t:"wel", id, code}. We use this to learn our id.
+  // The guest's first response: {t:"wel", id, code, seed, host, peers}. Resolve
+  // the join() promise with this; main.js expects a {seed, host, peers} object.
+  _onWel(msg) {
+    this.myId = msg.id;
+    this.code = msg.code;
+    if (msg.seed !== undefined) this.seed = msg.seed;
+    if (msg.host) {
+      this.hostProfile = msg.host;
+      this.peersInfo.set('host', msg.host);
+    }
+    if (Array.isArray(msg.peers)) {
+      for (const p of msg.peers) {
+        if (p.id && p.id !== msg.id) this.peersInfo.set(p.id, p);
+      }
+    }
+    if (this._pendingWel) {
+      const { resolve, reject } = this._pendingWel;
+      this._pendingWel = null;
+      // Shape the wel so main.js can use it like the old PeerJS wel.
+      // main.js reads wel.seed, and iterates net.peersInfo — both work.
+      resolve({ seed: this.seed, id: this.myId, host: this.hostProfile, peers: [...this.peersInfo] });
+    }
+  }
+
+  _onJoin(msg) {
+    this.peersInfo.set(msg.id, { name: msg.name, color: msg.color });
+    this.conns.set(msg.id, true);  // host: track presence
+    this.onPeerJoin?.(msg.id, { name: msg.name, color: msg.color });
+  }
+
+  _onLeave(msg) {
+    if (!this.conns.has(msg.id) && !this.peersInfo.has(msg.id)) return;
+    this.conns.delete(msg.id);
+    this.peersInfo.delete(msg.id);
+    this.onPeerLeave?.(msg.id);
+  }
+
+  // A forwarded game message. Unwrap and dispatch like the old _guestRoute /
+  // _hostRoute used to do.
+  _onPeer(msg) {
+    const { from, t: _wrap, m, ...rest } = msg;
+    // Dispatch on inner game message type so the game logic is identical to before.
+    switch (m) {
+      case 'st':
+        this.onState?.(from, { id: from, ...rest });
+        break;
+      case 'chat':
+        this.onChat?.(from, rest.text);
+        break;
+      case 'ck':
+        this.onClark?.(rest);
+        break;
+      case 'scare':
+        // host: a guest got got
+        this.onScareRequest?.(from);
+        break;
+      case 'scared':
+        this.onScared?.(rest.id);
+        break;
+      // 'hi' / 'join' / 'leave' / 'wel' are control messages handled by the
+      // relay directly, never forwarded. 'relay' is the client→relay form,
+      // also not forwarded. Anything else is ignored.
+    }
+  }
+
+  // -------- public API --------
 
   async host(code, profile, seed) {
     this.isHost = true;
     this.code = code;
     this.seed = seed;
-    let lastErr = { type: 'network' };
-    for (const srv of SERVERS) {
-      try {
-        const peer = await this._openPeer(PREFIX + code, srv.opts);
-        this.peer = peer;
-        this.myId = peer.id;
-        this.serverName = srv.name;
-        peer.on('error', (e) => console.warn('[net]', e.type, e.message));
-        peer.on('connection', (conn) => this._hostAccept(conn, profile));
-        console.log('[net] hosting via', srv.name);
-        return;
-      } catch (e) {
-        console.warn('[net] host failed on', srv.name, e?.type);
-        lastErr = e;
-      }
-    }
-    throw new Error(this._friendlyErr(lastErr));
-  }
-
-  _hostAccept(conn, profile) {
-    conn.on('data', (msg) => {
-      if (msg?.t === 'hi') {
-        const info = { name: String(msg.name || 'lost one').slice(0, 16), color: msg.color };
-        this.conns.set(conn.peer, conn);
-        this.peersInfo.set(conn.peer, info);
-        const peers = [...this.peersInfo].map(([id, p]) => ({ id, ...p }));
-        conn.send({ t: 'wel', id: conn.peer, seed: this.seed, peers, host: profile });
-        this._broadcast({ t: 'join', id: conn.peer, ...info }, conn.peer);
-        this.onPeerJoin?.(conn.peer, info);
-      } else {
-        this._hostRoute(conn.peer, msg);
-      }
+    this.hostProfile = profile;
+    const ws = await this._open(CONNECT_TIMEOUT_MS);
+    this.ws = ws;
+    this._bindWs(ws);
+    // Wait for the wel so the game UI knows the host is registered.
+    const welP = new Promise((resolve, reject) => {
+      this._pendingWel = { resolve, reject };
+      setTimeout(() => {
+        if (this._pendingWel) {
+          this._pendingWel = null;
+          try { ws.close(); } catch { /* */ }
+          this.ws = null;
+          reject({ type: 'timeout' });
+        }
+      }, CONNECT_TIMEOUT_MS);
     });
-    const drop = () => {
-      if (!this.conns.has(conn.peer)) return;
-      this.conns.delete(conn.peer);
-      this.peersInfo.delete(conn.peer);
-      this._broadcast({ t: 'leave', id: conn.peer });
-      this.onPeerLeave?.(conn.peer);
-    };
-    conn.on('close', drop);
-    conn.on('error', drop);
-  }
-
-  _hostRoute(fromId, msg) {
-    if (!msg || typeof msg.t !== 'string') return;
-    switch (msg.t) {
-      case 'st':
-        msg.id = fromId;
-        this._broadcast(msg, fromId);
-        this.onState?.(fromId, msg);
-        break;
-      case 'chat': {
-        const text = String(msg.text || '').slice(0, 200);
-        this._broadcast({ t: 'chat', id: fromId, text }, fromId);
-        this.onChat?.(fromId, text);
-        break;
-      }
-      case 'scare':
-        this.onScareRequest?.(fromId);
-        break;
-    }
+    this._send({ t: 'host', code, seed, profile });
+    await welP;
   }
 
   async join(code, profile) {
     this.isHost = false;
     this.code = code;
-    let lastErr = { type: 'peer-unavailable' };
-    for (const srv of SERVERS) {
-      let peer = null;
-      try {
-        peer = await this._openPeer(undefined, srv.opts);
-        const wel = await this._joinVia(peer, code, profile, 9000);
-        this.peer = peer;
-        this.serverName = srv.name;
-        console.log('[net] joined via', srv.name);
-        return wel;
-      } catch (e) {
-        console.warn('[net] join failed on', srv.name, e?.type);
-        lastErr = e;
-        try { peer?.destroy(); } catch { /* */ }
-        this.hostConn = null;
-      }
-    }
-    throw new Error(this._friendlyErr(lastErr));
-  }
-
-  _joinVia(peer, code, profile, timeoutMs) {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const fail = (e) => { if (!settled) { settled = true; reject(e); } };
-      const timer = setTimeout(() => fail({ type: 'timeout' }), timeoutMs);
-      peer.on('error', fail);
-      const conn = peer.connect(PREFIX + code, { reliable: true });
-      this.hostConn = conn;
-      conn.on('open', () => conn.send({ t: 'hi', ...profile }));
-      conn.on('data', (msg) => {
-        if (msg?.t === 'wel' && !settled) {
-          settled = true;
-          clearTimeout(timer);
-          this.myId = msg.id;
-          this.seed = msg.seed;
-          for (const p of msg.peers) if (p.id !== msg.id) this.peersInfo.set(p.id, p);
-          this.peersInfo.set('host', msg.host);
-          peer.off('error', fail);
-          peer.on('error', (e) => console.warn('[net]', e.type, e.message));
-          resolve(msg);
-        } else if (settled) {
-          this._guestRoute(msg);
+    const ws = await this._open(CONNECT_TIMEOUT_MS);
+    this.ws = ws;
+    this._bindWs(ws);
+    const welP = new Promise((resolve, reject) => {
+      this._pendingWel = { resolve, reject };
+      setTimeout(() => {
+        if (this._pendingWel) {
+          this._pendingWel = null;
+          try { ws.close(); } catch { /* */ }
+          this.ws = null;
+          reject({ type: 'timeout' });
         }
-      });
-      const closed = () => {
-        if (settled) this.onClosed?.('Lost connection to the host.');
-        else fail({ type: 'closed' });
-      };
-      conn.on('close', closed);
-      conn.on('error', closed);
+      }, CONNECT_TIMEOUT_MS);
     });
+    this._send({ t: 'join', code, profile });
+    return await welP;
   }
 
-  _guestRoute(msg) {
-    if (!msg || typeof msg.t !== 'string') return;
-    switch (msg.t) {
-      case 'st': this.onState?.(msg.id, msg); break;
-      case 'chat': this.onChat?.(msg.id, msg.text); break;
-      case 'join':
-        this.peersInfo.set(msg.id, { name: msg.name, color: msg.color });
-        this.onPeerJoin?.(msg.id, { name: msg.name, color: msg.color });
-        break;
-      case 'leave':
-        this.peersInfo.delete(msg.id);
-        this.onPeerLeave?.(msg.id);
-        break;
-      case 'ck': this.onClark?.(msg); break;
-      case 'scared': this.onScared?.(msg.id); break;
-    }
+  // ---- game-facing API (same surface as before) ----
+
+  sendState(st) {
+    if (!this.ws) return;
+    this._send({ t: 'relay', m: 'st', ...st });
+  }
+
+  sendChat(text) {
+    if (!this.ws) return;
+    this._send({ t: 'relay', m: 'chat', text: String(text || '').slice(0, 200) });
+  }
+
+  sendClark(state) {
+    if (!this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'ck', ...state });
+  }
+
+  sendScared(id) {
+    if (!this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'scared', id });
+  }
+
+  requestScare() {
+    if (this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'scare' });
+  }
+
+  playerCount() {
+    // 1 (self) + however many peers we've heard of. For the host this is
+    // conns.size (guests). For a guest this is peersInfo.size (host + other
+    // guests, with 'host' counted once).
+    if (this.isHost) return 1 + this.conns.size;
+    // peersInfo has host + each other guest.
+    return 1 + (this.peersInfo.has('host') ? this.peersInfo.size - 1 : this.peersInfo.size);
+  }
+
+  destroy() {
+    try { this._send({ t: 'leave' }); } catch { /* */ }
+    try { this.ws?.close(); } catch { /* */ }
+    this.ws = null;
+    this.conns.clear();
+    this.peersInfo.clear();
+    this.hostConn = null;
+    this._pendingWel = null;
   }
 
   _friendlyErr(e) {
@@ -262,53 +278,9 @@ export class Net {
       case 'peer-unavailable': return 'Room not found. Check the code.';
       case 'unavailable-id': return 'That room code is already hosted. Try again.';
       case 'network': case 'server-error': case 'socket-error':
-        return 'Could not reach the matchmaking server. Check your connection.';
+        return 'Could not reach the relay server. Check your connection.';
       case 'timeout': return 'Connection timed out. Check the code and try again.';
       default: return 'Connection failed (' + (e?.type || 'unknown') + ').';
     }
-  }
-
-  _broadcast(msg, exceptId = null) {
-    for (const [id, c] of this.conns) {
-      if (id !== exceptId && c.open) {
-        try { c.send(msg); } catch { /* dropped */ }
-      }
-    }
-  }
-
-  // ---- game-facing API ----
-
-  sendState(st) {
-    if (this.isHost) this._broadcast({ t: 'st', id: 'host', ...st });
-    else if (this.hostConn?.open) this.hostConn.send({ t: 'st', ...st });
-  }
-
-  sendChat(text) {
-    if (this.isHost) this._broadcast({ t: 'chat', id: 'host', text });
-    else if (this.hostConn?.open) this.hostConn.send({ t: 'chat', text });
-  }
-
-  sendClark(state) {
-    if (this.isHost) this._broadcast({ t: 'ck', ...state });
-  }
-
-  sendScared(id) {
-    if (this.isHost) this._broadcast({ t: 'scared', id });
-  }
-
-  requestScare() {
-    if (!this.isHost && this.hostConn?.open) this.hostConn.send({ t: 'scare' });
-  }
-
-  playerCount() {
-    return 1 + (this.isHost ? this.conns.size : this.peersInfo.size);
-  }
-
-  destroy() {
-    try { this.peer?.destroy(); } catch { /* already gone */ }
-    this.peer = null;
-    this.conns.clear();
-    this.peersInfo.clear();
-    this.hostConn = null;
   }
 }
