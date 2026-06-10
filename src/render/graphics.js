@@ -30,33 +30,67 @@ const DreadShader = {
     uniform float time, grain, vignette, fear, aberration;
     varying vec2 vUv;
 
+    const vec3 LUMA = vec3(0.299, 0.587, 0.114);
+
     float rand(vec2 co) {
       return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
     }
 
     void main() {
       vec2 uv = vUv;
+      float t = time;
+
+      // --- tape transport: subtle frame jitter + per-scanline wobble
+      uv.y += (rand(vec2(floor(t * 13.0), 7.0)) - 0.5) * 0.0018;
+      float line = floor(uv.y * 486.0);
+      float frameSlot = floor(t * 18.0);
+      uv.x += (rand(vec2(line, frameSlot)) - 0.5) * 0.0012 * (1.0 + fear * 2.5);
+
+      // --- tracking tear: a distorted band that occasionally rolls through
+      float roll = fract(t * 0.11);
+      float tear = 1.0 - smoothstep(0.0, 0.035, abs(uv.y - roll));
+      float tearOn = step(0.55, rand(vec2(floor(t * 0.11), 3.0))); // most rolls skipped
+      uv.x += tear * tearOn * (rand(vec2(line, floor(t * 60.0))) - 0.35) * 0.06;
+
       vec2 c = uv - 0.5;
       float r2 = dot(c, c);
 
-      // fear warps the frame: stronger aberration + slight pulse zoom
-      float ab = aberration * (1.0 + fear * 6.0) * (0.5 + r2 * 4.0);
-      vec2 dir = normalize(c + 1e-6);
-      vec3 col;
-      col.r = texture2D(tDiffuse, uv + dir * ab).r;
-      col.g = texture2D(tDiffuse, uv).g;
-      col.b = texture2D(tDiffuse, uv - dir * ab).b;
+      // --- luma sharp / chroma soft (VHS colour-under), plus fear aberration
+      float ab = aberration * (1.0 + fear * 6.0) * (0.6 + r2 * 4.0);
+      vec3 sharp;
+      sharp.r = texture2D(tDiffuse, uv + vec2(ab * 2.2, 0.0)).r;
+      sharp.g = texture2D(tDiffuse, uv).g;
+      sharp.b = texture2D(tDiffuse, uv - vec2(ab * 2.2, 0.0)).b;
+      vec3 soft = (
+        texture2D(tDiffuse, uv + vec2(0.0042, 0.0)).rgb +
+        texture2D(tDiffuse, uv - vec2(0.0028, 0.0)).rgb
+      ) * 0.5;
+      float luma = dot(sharp, LUMA);
+      vec3 chroma = soft - dot(soft, LUMA);
+      vec3 col = vec3(luma) + chroma * 1.15;
 
-      // film grain (animated)
-      float g = (rand(uv * vec2(1920.0, 1080.0) + fract(time) * 43.0) - 0.5) * grain;
-      col += g * (0.6 + r2 * 2.0);
+      // --- scanlines (interlace shimmer)
+      col *= 0.93 + 0.07 * sin(vUv.y * 486.0 * 3.14159 + step(0.5, fract(t * 30.0)) * 3.14159);
 
-      // vignette, tightens with fear
+      // --- tape noise: speckle, brighter inside the tear band
+      float n = rand(uv * vec2(1920.0, 1080.0) + fract(t) * 43.0);
+      col += (n - 0.5) * grain * (1.0 + tear * tearOn * 5.0);
+
+      // --- dropout streaks: rare bright horizontal scratches
+      float dropSeed = rand(vec2(line, floor(t * 24.0)));
+      float drop = step(0.9965, dropSeed) * step(rand(vec2(uv.x * 7.0, line)), 0.55);
+      col += drop * 0.4;
+
+      // --- head-switching noise at the very bottom of the frame
+      float hs = smoothstep(0.012, 0.0, vUv.y);
+      col = mix(col, vec3(rand(vec2(uv.x * 160.0, floor(t * 50.0)))) * 0.6, hs * 0.8);
+
+      // --- vignette, tightens with fear
       float v = smoothstep(0.95, 0.32 - fear * 0.18, r2 * (vignette + fear * 0.9));
       col *= mix(0.32, 1.0, v);
 
-      // fear drains colour and pushes red into the edges
-      float grey = dot(col, vec3(0.299, 0.587, 0.114));
+      // --- fear drains colour and pushes red into the edges
+      float grey = dot(col, LUMA);
       col = mix(col, vec3(grey), fear * 0.45);
       col.r += fear * r2 * 0.55;
 
