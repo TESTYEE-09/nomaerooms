@@ -9,8 +9,8 @@ Get lost with friends. Watch out for **Pirate Clark**.
 
 ## How to play
 
-- One player clicks **HOST A ROOM** and shares the 6-character code.
-- Friends enter the code and **JOIN** — no accounts, no servers, pure P2P (WebRTC).
+- Click **PLAY** — everyone joins the same room automatically.
+- No room codes, no accounts, no servers — pure WebSocket relay.
 - Wander the infinite maze together. Proximity chat with **T**.
 - Something tall walks these halls. It starts far away. It doesn't stay there.
 
@@ -33,8 +33,8 @@ Mobile: left half of the screen is a move stick, right half looks, with RUN/CHAT
   aberration "dread" grade that intensifies as Clark closes in.
 - **Infinite world** — deterministic chunked maze generated from a shared seed;
   every peer (and the AI) derives the identical layout from pure hash functions.
-- **PeerJS** — star-topology WebRTC. The host relays state, owns the world seed,
-  and is authoritative over Clark.
+- **WebSocket relay** — every client connects to a central relay (Render). The host
+  is authoritative over Clark; state streams at 12 Hz. Works on restricted NATs.
 - **Pirate Clark** — A* pathfinding over the maze grid with escalating
   ROAM → STALK → CHASE states, line-of-sight checks, and a proximity jumpscare.
 - **WebAudio** — every in-game sound (room tone, fluorescent buzz, footsteps,
