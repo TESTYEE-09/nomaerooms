@@ -39,7 +39,29 @@ export class Net {
   }
 
   _newPeer(id) {
-    return new Peer(id, { debug: 1 });
+    // School/corporate networks often block UDP and non-443 traffic, which
+    // kills plain STUN. Free TURN relays (Open Relay) over TCP/443 give the
+    // connection a fallback path through almost any firewall.
+    return new Peer(id, {
+      debug: 1,
+      config: {
+        iceServers: [
+          { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+          { urls: 'stun:openrelay.metered.ca:80' },
+          {
+            urls: [
+              'turn:openrelay.metered.ca:80',
+              'turn:openrelay.metered.ca:443',
+              'turn:openrelay.metered.ca:443?transport=tcp',
+              'turns:openrelay.metered.ca:443',
+            ],
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+          },
+        ],
+        iceCandidatePoolSize: 4,
+      },
+    });
   }
 
   host(code, profile, seed) {

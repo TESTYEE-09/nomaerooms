@@ -78,6 +78,14 @@ export class Clark {
     this._baseY = m.position.y;
     this._model = m;
     this.group.add(m);
+
+    // the GLB ships with a baked 'walk' clip (rigged in Blender);
+    // drive it from moveAmount. Procedural bob stays as a fallback.
+    if (gltf.animations?.length) {
+      this._mixer = new THREE.AnimationMixer(m);
+      this._walk = this._mixer.clipAction(gltf.animations[0]);
+      this._walk.play();
+    }
   }
 
   // ---- shared ----
@@ -231,8 +239,14 @@ export class Clark {
   _animate(dt) {
     this.group.rotation.y = this.heading;
     if (!this._model) return;
-    // procedural stride: bob, sway, forward lean scaled by speed
     const k = this.moveAmount;
+    if (this._mixer) {
+      this._walk.timeScale = 0.15 + k * 1.6;
+      this._mixer.update(dt);
+      this._model.rotation.x = -0.05 * k; // forward lean while striding
+      return;
+    }
+    // procedural stride fallback: bob, sway, forward lean scaled by speed
     const f = 5.5 + k * 3.5;
     this._model.position.y = this._baseY + Math.abs(Math.sin(this.t * f)) * 0.09 * k;
     this._model.rotation.z = Math.sin(this.t * f) * 0.06 * k;
