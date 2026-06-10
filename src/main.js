@@ -259,18 +259,18 @@ function triggerJumpscare() {
   state = 'scare';
   player.frozen = true;
   fear = 1;
-  clark.lungeAt(graphics.camera);
+  clark.beginScare(graphics.camera);
   audio.jumpscare();
   ui.scareFlash();
   input.releaseLock();
   if (net.isHost) {
-    setTimeout(() => hostRelocateClark(), 1100);
+    setTimeout(() => hostRelocateClark(), 1600);
   } else {
-    setTimeout(() => net.requestScare(), 1100);
+    setTimeout(() => net.requestScare(), 1600);
   }
   setTimeout(() => {
     if (state === 'scare') { state = 'dead'; ui.showDeath(); }
-  }, 1500);
+  }, 1900);
 }
 
 // ---------- main loop ----------
@@ -318,6 +318,20 @@ function frame() {
     }
   }
 
+  // while being eaten: he advances into the lens, the view is dragged up to
+  // his face with a violent tremble
+  if (state === 'scare') {
+    clark.scareUpdate(dt, graphics.camera);
+    const dx = clark.pos.x - player.pos.x, dz = clark.pos.z - player.pos.z;
+    const wantYaw = Math.atan2(-dx, -dz);
+    let dy = wantYaw - player.yaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    player.yaw += dy * Math.min(1, dt * 14);
+    player.pitch = damp(player.pitch, 0.55, 10, dt) + (Math.random() - 0.5) * 0.05;
+    player.yaw += (Math.random() - 0.5) * 0.035;
+  }
+
   // fear: proximity drives the post grade + heartbeat
   const targetFear = state === 'scare' ? 1 : clark.fearFor(player.pos.x, player.pos.z);
   fear = damp(fear, targetFear, 3, dt);
@@ -333,6 +347,7 @@ function frame() {
     sendAcc = 0;
     net.sendState({
       p: [+player.pos.x.toFixed(3), +player.pos.z.toFixed(3)],
+      y: +player.y.toFixed(2),
       ry: +player.yaw.toFixed(3),
       pi: +player.pitch.toFixed(2),
       mv: player.moving ? 1 : 0,

@@ -238,6 +238,33 @@ export class AudioEngine {
     ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9);
     n.connect(nf).connect(ng).connect(this.master);
     n.start(t0);
+    // the eating: three wet chomps (noise crunch + jaw-slam sub thud)
+    for (const off of [0.15, 0.5, 0.85]) {
+      const cn = ctx.createBufferSource();
+      cn.buffer = this._noiseBuffer(0.25);
+      cn.playbackRate.value = 0.55;
+      const cf = ctx.createBiquadFilter();
+      cf.type = 'bandpass';
+      cf.frequency.value = 480;
+      cf.Q.value = 0.8;
+      const cg = ctx.createGain();
+      cg.gain.setValueAtTime(0.0001, t0 + off);
+      cg.gain.exponentialRampToValueAtTime(0.5, t0 + off + 0.015);
+      cg.gain.exponentialRampToValueAtTime(0.001, t0 + off + 0.16);
+      cn.connect(cf).connect(cg).connect(this.master);
+      cn.start(t0 + off);
+      const jaw = ctx.createOscillator();
+      jaw.type = 'sine';
+      jaw.frequency.setValueAtTime(70, t0 + off);
+      jaw.frequency.exponentialRampToValueAtTime(32, t0 + off + 0.1);
+      const jg = ctx.createGain();
+      jg.gain.setValueAtTime(0.45, t0 + off);
+      jg.gain.exponentialRampToValueAtTime(0.001, t0 + off + 0.14);
+      jaw.connect(jg).connect(this.master);
+      jaw.start(t0 + off);
+      jaw.stop(t0 + off + 0.16);
+    }
+
     // sub impact
     const s = ctx.createOscillator();
     s.type = 'sine';

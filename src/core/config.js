@@ -14,7 +14,9 @@ export const STAMINA_MAX = 100;
 export const STAMINA_DRAIN = 22;  // per second sprinting
 export const STAMINA_REGEN = 14;  // per second resting
 
-export const CLARK_HEIGHT = 2.7;
+export const CLARK_HEIGHT = 2.3;   // tall but clear of the 3.1 m ceiling
+export const JUMP_SPEED = 4.6;
+export const GRAVITY = 13.5;
 export const CLARK_SCARE_DIST = 1.9;
 
 export const NET_SEND_HZ = 12;

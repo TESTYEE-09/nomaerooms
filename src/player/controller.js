@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import {
   EYE_HEIGHT, PLAYER_RADIUS, WALK_SPEED, SPRINT_SPEED,
-  STAMINA_MAX, STAMINA_DRAIN, STAMINA_REGEN,
+  STAMINA_MAX, STAMINA_DRAIN, STAMINA_REGEN, JUMP_SPEED, GRAVITY,
 } from '../core/config.js';
 import { clamp, damp, lerp } from '../core/utils.js';
 import { resolveCollision } from '../world/chunks.js';
@@ -16,6 +16,9 @@ export class PlayerController {
     this.settings = settingsRef;
     this.pos = new THREE.Vector3(2, 0, 2);
     this.vel = new THREE.Vector2(0, 0);   // xz
+    this.y = 0;                           // height above floor
+    this.vy = 0;
+    this.grounded = true;
     this.yaw = 0;
     this.pitch = 0;
     this.stamina = STAMINA_MAX;
@@ -69,6 +72,22 @@ export class PlayerController {
     this.pos.z += this.vel.y * dt;
     resolveCollision(this.pos, PLAYER_RADIUS, colliders);
 
+    // jump
+    if (this.grounded && !this.frozen && this.input.keys.has('Space')) {
+      this.vy = JUMP_SPEED;
+      this.grounded = false;
+    }
+    if (!this.grounded) {
+      this.vy -= GRAVITY * dt;
+      this.y += this.vy * dt;
+      if (this.y <= 0) {
+        this.y = 0;
+        this.vy = 0;
+        this.grounded = true;
+        this.onFootstep?.(true); // landing thud
+      }
+    }
+
     // head bob + footsteps
     const speed = Math.hypot(this.vel.x, this.vel.y);
     this.moving = speed > 0.4;
@@ -81,12 +100,13 @@ export class PlayerController {
       this.onFootstep?.(this.sprinting);
     }
 
-    const bobY = Math.abs(Math.sin(this.bobPhase)) * 0.05 * this.bobAmp;
-    const bobX = Math.sin(this.bobPhase * 0.5) * 0.025 * this.bobAmp;
+    const air = this.grounded ? 1 : 0;
+    const bobY = Math.abs(Math.sin(this.bobPhase)) * 0.05 * this.bobAmp * air;
+    const bobX = Math.sin(this.bobPhase * 0.5) * 0.025 * this.bobAmp * air;
 
     this.camera.position.set(
       this.pos.x + Math.cos(this.yaw) * bobX,
-      EYE_HEIGHT + bobY,
+      this.y + EYE_HEIGHT + bobY,
       this.pos.z - Math.sin(this.yaw) * bobX
     );
     this.camera.rotation.set(0, 0, 0);

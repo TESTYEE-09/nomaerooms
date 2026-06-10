@@ -267,17 +267,47 @@ export class Clark {
     return Math.hypot(px - this.pos.x, pz - this.pos.z) < CLARK_SCARE_DIST;
   }
 
-  // snap to lunge at the camera during a jumpscare
-  lungeAt(camera) {
+  // ---- the eating ----
+  // beginScare snaps him in front of the camera; scareUpdate then walks him
+  // into the lens over ~1.2 s, looming and "biting" (sharp forward snaps of
+  // the whole body synced with the audio chomps in audio.jumpscare()).
+
+  beginScare(camera) {
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
+    dir.y = 0;
+    dir.normalize();
+    this._scareDir = dir.clone();
+    this._scareT = 0;
     this.group.position.set(
-      camera.position.x + dir.x * 1.1,
+      camera.position.x + dir.x * 1.5,
       0,
-      camera.position.z + dir.z * 1.1
+      camera.position.z + dir.z * 1.5
     );
+    this.pos.copy(this.group.position);
     this.heading = Math.atan2(-dir.x, -dir.z);
     this.group.rotation.y = this.heading;
     this.moveAmount = 0;
+    if (this._walk) this._walk.timeScale = 0;
+  }
+
+  scareUpdate(dt, camera) {
+    this._scareT += dt;
+    const t = this._scareT;
+    const k = Math.min(1, t / 1.2);
+    // close in from 1.5 m to 0.35 m — by the end his face fills the frame
+    let d = 1.5 - 1.15 * (k * k);
+    // bite snaps: lurch 20 cm closer at each chomp (matches audio at .15/.5/.85)
+    for (const bite of [0.15, 0.5, 0.85]) {
+      const bt = t - bite;
+      if (bt > 0 && bt < 0.18) d -= 0.2 * Math.sin((bt / 0.18) * Math.PI);
+    }
+    this.group.position.set(
+      camera.position.x + this._scareDir.x * d,
+      0,
+      camera.position.z + this._scareDir.z * d
+    );
+    this.pos.copy(this.group.position);
+    if (this._model) this._model.rotation.x = -0.35 * k; // loom over the lens
   }
 }

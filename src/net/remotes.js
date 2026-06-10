@@ -82,7 +82,7 @@ class Avatar {
       this.initialized = true;
     }
     this.from.copy(this.group.position);
-    this.to.set(msg.p[0], 0, msg.p[1]);
+    this.to.set(msg.p[0], msg.y || 0, msg.p[1]);
     this.lerpT = 0;
     this.yawTo = msg.ry;
     this.pitchTo = msg.pi || 0;
@@ -113,7 +113,7 @@ class Avatar {
 
     if (this.moving) {
       this.walkPhase += dt * 9;
-      this.group.position.y = Math.abs(Math.sin(this.walkPhase)) * 0.04;
+      this.group.position.y += Math.abs(Math.sin(this.walkPhase)) * 0.04;
     }
 
     const dist = camPos.distanceTo(this.group.position);
