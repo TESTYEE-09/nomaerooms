@@ -48,20 +48,43 @@ export class Net {
 
   _newPeer(id, serverOpts) {
     // School/corporate networks often block UDP and non-443 traffic, which
-    // kills plain STUN. Free TURN relays give the connection a fallback path
-    // through restrictive firewalls. (openrelay.metered.ca is dead — the Open
-    // Relay project shut down — so it was replaced with live free relays.)
+    // kills plain STUN. TURN relays give the connection a fallback path
+    // through restrictive firewalls.
+    //
+    // The PeerJS library ships with its own built-in TURN at
+    //   turn:eu-0.turn.peerjs.com:3478 / turn:us-0.turn.peerjs.com:3478
+    //   username "peerjs"  credential "peerjsp"
+    // Any `config` we pass to the Peer constructor REPLACES the default
+    // iceServers, so we must include that TURN explicitly — otherwise we
+    // lose the only TURN that actually has working credentials and the
+    // game becomes unplayable on restricted networks. The previous
+    // attempts (freeturn.net, freeturn.tel) are dead domains and the
+    // openrelay.metered.ca replacement requires per-user auth, so we no
+    // longer bother with them here.
     return new Peer(id, {
       debug: 1,
       ...serverOpts,
       config: {
         iceServers: [
+          // Public STUN — works for the ~80% of clients on cone NAT.
           { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+          // PeerJS Cloud TURN — the canonical working fallback. Keep
+          // these entries first so they're tried before any regional
+          // relays; the credential is the well-known public one for
+          // free peer-to-peer traffic.
           {
-            urls: ['turn:freeturn.net:3478', 'turn:freeturn.net:3478?transport=tcp', 'turns:freeturn.tel:5349'],
-            username: 'free',
-            credential: 'free',
+            urls: [
+              'turn:eu-0.turn.peerjs.com:3478',
+              'turn:eu-0.turn.peerjs.com:3478?transport=tcp',
+              'turn:us-0.turn.peerjs.com:3478',
+              'turn:us-0.turn.peerjs.com:3478?transport=tcp',
+            ],
+            username: 'peerjs',
+            credential: 'peerjsp',
           },
+          // freestun.net is still alive (Cloudflare-fronted); keep as a
+          // last-resort regional fallback. Uses its own public "free"
+          // credentials (low-volume use only).
           {
             urls: ['turn:freestun.net:3478', 'turns:freestun.net:5350'],
             username: 'free',
