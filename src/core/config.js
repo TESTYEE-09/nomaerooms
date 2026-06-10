@@ -7,6 +7,7 @@ export const CHUNK_CELLS = 8;     // cells per chunk side
 export const CHUNK_SIZE = CELL * CHUNK_CELLS; // 32 m
 
 export const EYE_HEIGHT = 1.62;
+export const PLAYER_HEIGHT = 1.8;  // remote-player avatar model height
 export const PLAYER_RADIUS = 0.34;
 export const WALK_SPEED = 3.5;
 export const SPRINT_SPEED = 6.0;

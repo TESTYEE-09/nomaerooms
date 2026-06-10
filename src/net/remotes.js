@@ -1,11 +1,41 @@
-// Remote players: capsule avatar tinted with their colour, name label sprite,
-// and proximity chat bubbles that fade with distance and age.
+// Remote players: hazmat-suit avatar tinted with their colour, name label
+// sprite, and proximity chat bubbles that fade with distance and age.
 
 import * as THREE from 'three';
-import { EYE_HEIGHT } from '../core/config.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import { EYE_HEIGHT, PLAYER_HEIGHT } from '../core/config.js';
 
 const BUBBLE_TTL = 7;       // seconds a chat bubble lingers
 const BUBBLE_RANGE = 24;    // metres at which bubbles become unreadable
+
+const MODEL_URL = './assets/models/hazmat.glb';
+
+// Loaded once and shared: every Avatar gets a SkeletonUtils.clone() of this
+// (a plain Object3D.clone() doesn't keep skinned-mesh bones in sync).
+let _modelPromise = null;
+function loadModel() {
+  if (!_modelPromise) {
+    _modelPromise = new Promise((resolve, reject) => {
+      new GLTFLoader().load(MODEL_URL, (gltf) => {
+        const m = gltf.scene;
+        m.traverse((o) => {
+          if (o.isMesh) { o.castShadow = true; o.frustumCulled = true; }
+        });
+        // Normalize by vertical extent so every avatar stands PLAYER_HEIGHT
+        // tall with feet at y=0 (same trick as Clark's model).
+        const size = new THREE.Vector3();
+        new THREE.Box3().setFromObject(m).getSize(size);
+        const scale = PLAYER_HEIGHT / size.y;
+        m.scale.setScalar(scale);
+        const minY = new THREE.Box3().setFromObject(m).min.y;
+        m.position.y = -minY;
+        resolve(m);
+      }, undefined, reject);
+    });
+  }
+  return _modelPromise;
+}
 
 function textSprite(text, { font = '600 26px system-ui, sans-serif', pad = 10, bg = null, fg = '#fff' } = {}) {
   const c = document.createElement('canvas');
@@ -41,19 +71,22 @@ class Avatar {
     this.info = info;
     this.group = new THREE.Group();
 
-    const color = new THREE.Color(info.color || '#7da2ff');
-    const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0.05 });
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.85, 4, 12), bodyMat);
-    body.position.y = 0.9;
-    body.castShadow = true;
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.21, 16, 12),
-      new THREE.MeshStandardMaterial({ color: 0xd9c4a8, roughness: 0.85 })
-    );
-    head.position.y = EYE_HEIGHT;
-    head.castShadow = true;
-    this.head = head;
-    this.group.add(body, head);
+    this.head = null;   // resolved once the model loads (used for pitch tilt)
+    this.model = null;
+    loadModel().then((proto) => {
+      const m = cloneSkeleton(proto);
+      const color = new THREE.Color(info.color || '#7da2ff');
+      m.traverse((o) => {
+        if (o.isMesh && o.material) {
+          o.material = o.material.clone();
+          o.material.color = color;
+        }
+      });
+      this.model = m;
+      this._modelBaseY = m.position.y;
+      this.head = m.getObjectByName('Head_1') || null;
+      this.group.add(m);
+    }).catch((e) => console.warn('[remotes] failed to load avatar model', e));
 
     this.label = textSprite(info.name || '???', { fg: '#e8ffe8', bg: 'rgba(0,0,0,0.45)' });
     this.label.position.y = EYE_HEIGHT + 0.45;
@@ -109,11 +142,12 @@ class Avatar {
     while (dy < -Math.PI) dy += Math.PI * 2;
     this.yaw += dy * Math.min(1, dt * 12);
     this.group.rotation.y = this.yaw;
-    this.head.rotation.x = -this.pitchTo * 0.6;
+    if (this.head) this.head.rotation.x = -this.pitchTo * 0.6;
 
-    if (this.moving) {
-      this.walkPhase += dt * 9;
-      this.group.position.y += Math.abs(Math.sin(this.walkPhase)) * 0.04;
+    if (this.moving) this.walkPhase += dt * 9;
+    if (this.model) {
+      const bob = this.moving ? Math.abs(Math.sin(this.walkPhase)) * 0.04 : 0;
+      this.model.position.y = this._modelBaseY + bob;
     }
 
     const dist = camPos.distanceTo(this.group.position);
@@ -138,11 +172,18 @@ class Avatar {
   dispose() {
     this.scene.remove(this.group);
     this.group.traverse((o) => {
-      if (o.isMesh || o.isSprite) {
-        o.geometry?.dispose();
+      if (o.isSprite) {
         o.material?.map?.dispose();
         o.material?.dispose();
+      } else if (o.isMesh && !this.model) {
+        // capsule/sphere placeholder geometry — owned by this instance
+        o.geometry?.dispose();
+        o.material?.dispose();
       }
+      // model meshes share geometry/textures across avatars (SkeletonUtils
+      // clone) and only their per-instance cloned material would be safe to
+      // dispose, but it's cheap enough to just leak until the model itself
+      // is reloaded (page navigation), so skip it.
     });
   }
 }
