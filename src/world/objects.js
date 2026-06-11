@@ -18,45 +18,46 @@ const fabricMat = (c) => new THREE.MeshStandardMaterial({
 
 function createOfficeChair() {
   const g = new THREE.Group();
+  const s = 1.5;
   const frameMat = metalMat(0x3a3a3a);
   const seatMat = fabricMat(0x1a1a2e);
   const wheelMat = plasticMat(0x1a1a1a);
 
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.02, 0.14), frameMat);
-    arm.position.set(Math.sin(a) * 0.15, 0.01, Math.cos(a) * 0.15);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04 * s, 0.02 * s, 0.14 * s), frameMat);
+    arm.position.set(Math.sin(a) * 0.15 * s, 0.01 * s, Math.cos(a) * 0.15 * s);
     arm.rotation.y = -a;
     g.add(arm);
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.015, 5), wheelMat);
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.02 * s, 0.025 * s, 0.015 * s, 5), wheelMat);
     wheel.rotation.x = Math.PI / 2;
-    wheel.position.set(Math.sin(a) * 0.22, 0.01, Math.cos(a) * 0.22);
+    wheel.position.set(Math.sin(a) * 0.22 * s, 0.01 * s, Math.cos(a) * 0.22 * s);
     g.add(wheel);
   }
 
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.03, 6), frameMat);
-  hub.position.y = 0.015;
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.06 * s, 0.08 * s, 0.03 * s, 6), frameMat);
+  hub.position.y = 0.015 * s;
   g.add(hub);
 
-  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.35, 6), metalMat(0x888888));
-  cyl.position.y = 0.2;
+  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.025 * s, 0.03 * s, 0.35 * s, 6), metalMat(0x888888));
+  cyl.position.y = 0.2 * s;
   g.add(cyl);
 
-  const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.06, 10), seatMat);
-  seat.position.y = 0.38;
+  const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * s, 0.22 * s, 0.06 * s, 10), seatMat);
+  seat.position.y = 0.38 * s;
   g.add(seat);
 
   for (const side of [-1, 1]) {
-    const armPost = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.15, 0.025), plasticMat(0x222222));
-    armPost.position.set(side * 0.22, 0.48, -0.02);
+    const armPost = new THREE.Mesh(new THREE.BoxGeometry(0.025 * s, 0.15 * s, 0.025 * s), plasticMat(0x222222));
+    armPost.position.set(side * 0.22 * s, 0.48 * s, -0.02 * s);
     g.add(armPost);
-    const armPad = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.015, 0.1), seatMat);
-    armPad.position.set(side * 0.22, 0.55, -0.02);
+    const armPad = new THREE.Mesh(new THREE.BoxGeometry(0.04 * s, 0.015 * s, 0.1 * s), seatMat);
+    armPad.position.set(side * 0.22 * s, 0.55 * s, -0.02 * s);
     g.add(armPad);
   }
 
-  const back = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.035), seatMat);
-  back.position.set(0, 0.62, -0.14);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.18 * s, 0.18 * s, 0.035 * s), seatMat);
+  back.position.set(0, 0.62 * s, -0.14 * s);
   g.add(back);
 
   return g;
@@ -64,16 +65,17 @@ function createOfficeChair() {
 
 function createDesk() {
   const g = new THREE.Group();
+  const s = 1.5;
   const desktopMat = woodMat(0x6a5238);
   const legMat = metalMat(0x5a5a5a);
 
-  const top = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.035, 0.5), desktopMat);
-  top.position.y = 0.72;
+  const top = new THREE.Mesh(new THREE.BoxGeometry(0.9 * s, 0.035 * s, 0.5 * s), desktopMat);
+  top.position.y = 0.72 * s;
   g.add(top);
 
-  for (const [dx, dz] of [[-0.4, -0.22], [0.4, -0.22], [-0.4, 0.22], [0.4, 0.22]]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.7, 0.025), legMat);
-    leg.position.set(dx, 0.35, dz);
+  for (const [dx, dz] of [[-0.4 * s, -0.22 * s], [0.4 * s, -0.22 * s], [-0.4 * s, 0.22 * s], [0.4 * s, 0.22 * s]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.025 * s, 0.7 * s, 0.025 * s), legMat);
+    leg.position.set(dx, 0.35 * s, dz);
     g.add(leg);
   }
 
@@ -82,20 +84,21 @@ function createDesk() {
 
 function createFilingCabinet() {
   const g = new THREE.Group();
+  const s = 1.5;
   const bodyMat = metalMat(0x5a6a5a);
   const handleMat = metalMat(0x3a3a3a);
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.75, 0.45), bodyMat);
-  body.position.y = 0.375;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.35 * s, 0.75 * s, 0.45 * s), bodyMat);
+  body.position.y = 0.375 * s;
   g.add(body);
 
   for (let i = 0; i < 3; i++) {
-    const drawer = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.01), bodyMat);
-    drawer.position.set(0, 0.15 + i * 0.22, 0.225);
+    const drawer = new THREE.Mesh(new THREE.BoxGeometry(0.3 * s, 0.2 * s, 0.01 * s), bodyMat);
+    drawer.position.set(0, 0.15 * s + i * 0.22 * s, 0.225 * s);
     g.add(drawer);
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.06, 4), handleMat);
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.008 * s, 0.008 * s, 0.06 * s, 4), handleMat);
     handle.rotation.x = Math.PI / 2;
-    handle.position.set(0, 0.15 + i * 0.22, 0.235);
+    handle.position.set(0, 0.15 * s + i * 0.22 * s, 0.235 * s);
     g.add(handle);
   }
 
@@ -104,21 +107,22 @@ function createFilingCabinet() {
 
 function createLamp() {
   const g = new THREE.Group();
+  const s = 1.5;
   const poleMat = metalMat(0x4a4a4a);
   const shadeMat = new THREE.MeshStandardMaterial({
     color: 0x2a3a2a, roughness: 0.8, metalness: 0.0, side: THREE.DoubleSide,
   });
 
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.025, 8), poleMat);
-  base.position.y = 0.015;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.08 * s, 0.1 * s, 0.025 * s, 8), poleMat);
+  base.position.y = 0.015 * s;
   g.add(base);
 
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.6, 6), poleMat);
-  pole.position.y = 0.35;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.015 * s, 0.02 * s, 0.6 * s, 6), poleMat);
+  pole.position.y = 0.35 * s;
   g.add(pole);
 
-  const shade = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.15, 8), shadeMat);
-  shade.position.y = 0.7;
+  const shade = new THREE.Mesh(new THREE.ConeGeometry(0.12 * s, 0.15 * s, 8), shadeMat);
+  shade.position.y = 0.7 * s;
   g.add(shade);
 
   return g;
@@ -126,17 +130,18 @@ function createLamp() {
 
 function createShelf() {
   const g = new THREE.Group();
+  const s = 1.5;
   const shelfMat = woodMat(0x5a4a3a);
 
-  for (const [dx, dz] of [[-0.2, -0.15], [0.2, -0.15], [-0.2, 0.15], [0.2, 0.15]]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.6, 0.02), shelfMat);
-    leg.position.set(dx, 0.3, dz);
+  for (const [dx, dz] of [[-0.2 * s, -0.15 * s], [0.2 * s, -0.15 * s], [-0.2 * s, 0.15 * s], [0.2 * s, 0.15 * s]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.02 * s, 0.6 * s, 0.02 * s), shelfMat);
+    leg.position.set(dx, 0.3 * s, dz);
     g.add(leg);
   }
 
   for (let i = 0; i < 3; i++) {
-    const board = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.015, 0.35), shelfMat);
-    board.position.set(0, 0.05 + i * 0.2, 0);
+    const board = new THREE.Mesh(new THREE.BoxGeometry(0.45 * s, 0.015 * s, 0.35 * s), shelfMat);
+    board.position.set(0, 0.05 * s + i * 0.2 * s, 0);
     g.add(board);
   }
 
@@ -152,15 +157,15 @@ function pickObjectType(cx, cz, seed) {
   const r = hash2(cx, cz, seed);
   const isHallCell = gen.isHall(cx, cz);
   if (isHallCell) {
-    if (r < 0.6) return null;
-    if (r < 0.7) return 'desk';
-    if (r < 0.78) return 'chair';
-    if (r < 0.85) return 'filing';
-    if (r < 0.92) return 'shelf';
+    if (r < 0.55) return null;
+    if (r < 0.66) return 'desk';
+    if (r < 0.75) return 'chair';
+    if (r < 0.83) return 'filing';
+    if (r < 0.91) return 'shelf';
     return 'lamp';
   }
-  if (r < 0.97) return null;
-  if (r < 0.985) return 'chair';
+  if (r < 0.95) return null;
+  if (r < 0.975) return 'chair';
   return 'lamp';
 }
 
@@ -217,33 +222,33 @@ export class ObjectPlacer {
         const offZ = (hash2(cx, cz + 99, seed + 0x222) - 0.5) * (CELL * 0.5 - margin);
         obj.position.set(midX + offX, 0, midZ + offZ);
 
-        // wall clipping — some objects slide into walls
+        // wall clipping — subtle intersections
         const clipR = hash2(cx, cz, 0x444);
-        if (clipR < 0.25) {
-          obj.position.x += (hash2(cx, cz, 0x555) - 0.5) * CELL * 0.4;
-          obj.position.z += (hash2(cx, cz, 0x666) - 0.5) * CELL * 0.4;
+        if (clipR < 0.12) {
+          obj.position.x += (hash2(cx, cz, 0x555) - 0.5) * CELL * 0.2;
+          obj.position.z += (hash2(cx, cz, 0x666) - 0.5) * CELL * 0.2;
         }
 
-        // ground clipping — some objects sink into the floor
+        // ground clipping — subtle sink
         const sinkR = hash2(cx, cz, 0x777);
-        if (sinkR < 0.2) {
-          obj.position.y = -(hash2(cx, cz, 0x888)) * 0.2;
+        if (sinkR < 0.1) {
+          obj.position.y = -(hash2(cx, cz, 0x888)) * 0.1;
         }
 
-        // distortion — stretch/squash on random axes
+        // distortion — subtle stretch
         const distortR = hash2(cx, cz, 0x999);
-        if (distortR < 0.18) {
-          const sx = 0.5 + hash2(cx, cz, 0xaaa) * 1.5;
-          const sy = 0.5 + hash2(cx, cz, 0xbbb) * 1.5;
-          const sz = 0.5 + hash2(cx, cz, 0xccc) * 1.5;
+        if (distortR < 0.1) {
+          const sx = 0.8 + hash2(cx, cz, 0xaaa) * 0.6;
+          const sy = 0.8 + hash2(cx, cz, 0xbbb) * 0.6;
+          const sz = 0.8 + hash2(cx, cz, 0xccc) * 0.6;
           obj.scale.set(sx, sy, sz);
         }
 
         // random tilt
         const tiltR = hash2(cx, cz, 0xddd);
-        if (tiltR < 0.12) {
-          obj.rotation.x = (hash2(cx, cz, 0xeee) - 0.5) * 0.5;
-          obj.rotation.z = (hash2(cx, cz, 0xfff) - 0.5) * 0.5;
+        if (tiltR < 0.06) {
+          obj.rotation.x = (hash2(cx, cz, 0xeee) - 0.5) * 0.25;
+          obj.rotation.z = (hash2(cx, cz, 0xfff) - 0.5) * 0.25;
         }
 
         // tint

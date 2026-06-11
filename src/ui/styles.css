@@ -95,6 +95,11 @@ input[type="range"] { padding: 0; accent-color: var(--green); height: 28px; }
 .error { color: #e08c8c; font-size: 14px; min-height: 1.2em; }
 footer { position: absolute; bottom: 18px; font-size: 12px; color: var(--green-dim); line-height: 1.7; }
 .dim { color: var(--green-dim); }
+#version {
+  position: fixed; bottom: 14px; right: 16px;
+  font-size: 11px; color: var(--green-dim);
+  opacity: 0.5; z-index: 15;
+}
 .small { font-size: 12px; }
 
 /* ---------- loading ---------- */

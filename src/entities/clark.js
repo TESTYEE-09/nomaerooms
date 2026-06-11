@@ -61,7 +61,7 @@ export class Clark {
     try {
       const loader = new GLTFLoader();
       const gltf = await new Promise((res, rej) => {
-        loader.load('/models/captain_clark.glb', res, undefined, rej);
+        loader.load(import.meta.env.BASE_URL + 'models/captain_clark.glb', res, undefined, rej);
       });
       this._pirateGroup = gltf.scene;
       this._brightenModelMaterial(this._pirateGroup);
