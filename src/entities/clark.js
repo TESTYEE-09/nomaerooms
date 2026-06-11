@@ -134,7 +134,11 @@ export class Clark {
   }
 
   async load(onProgress) {
-    if (onProgress) onProgress({ loaded: 1, total: 1 });
+    if (onProgress) {
+      console.log('[clark] load() called, invoking onProgress');
+      onProgress({ loaded: 1, total: 1 });
+      console.log('[clark] onProgress invoked');
+    }
     return Promise.resolve();
   }
 
