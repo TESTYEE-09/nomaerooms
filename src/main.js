@@ -50,11 +50,13 @@ const TIPS = [
 ui.showLoading(0.02, TIPS[0]);
 
 clark.load((ev) => {
+  console.log('[main] clark.load callback fired:', ev);
   if (ev?.total) ui.showLoading(0.05 + 0.9 * (ev.loaded / ev.total), TIPS[(ev.loaded / ev.total * 3.5) | 0]);
 }).catch((e) => {
   console.warn('[clark] model failed to load:', e);
   ui.toast('warning: the entity failed to load');
 }).finally(() => {
+  console.log('[main] clark.load finally');
   ui.showLoading(1, 'ready.');
   setTimeout(() => { state = 'menu'; ui.showMenu(); }, 350);
 });
