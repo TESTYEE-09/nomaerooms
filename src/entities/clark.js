@@ -12,11 +12,15 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { CELL, CLARK_HEIGHT, CLARK_SCARE_DIST } from '../core/config.js';
 import { clamp, damp } from '../core/utils.js';
 import * as gen from '../world/generator.js';
 
 const MODEL_URL = './assets/models/pirate-clark.glb';
+
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
 
 // The pirate-clark GLB is exported with the model facing its own +X axis
 // (verified in a viewer: at rotation.y=0, Clark's chest points down +X).
@@ -70,6 +74,7 @@ export class Clark {
 
   async load(onProgress) {
     const loader = new GLTFLoader();
+    loader.setDRACOLoader(dracoLoader);
     const gltf = await new Promise((res, rej) =>
       loader.load(MODEL_URL, res, onProgress, rej));
     const m = gltf.scene;

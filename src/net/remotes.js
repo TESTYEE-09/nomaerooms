@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { EYE_HEIGHT, PLAYER_HEIGHT } from '../core/config.js';
 
@@ -11,13 +12,18 @@ const BUBBLE_RANGE = 24;    // metres at which bubbles become unreadable
 
 const MODEL_URL = './assets/models/hazmat.glb';
 
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+
 // Loaded once and shared: every Avatar gets a SkeletonUtils.clone() of this
 // (a plain Object3D.clone() doesn't keep skinned-mesh bones in sync).
 let _modelPromise = null;
 function loadModel() {
   if (!_modelPromise) {
     _modelPromise = new Promise((resolve, reject) => {
-      new GLTFLoader().load(MODEL_URL, (gltf) => {
+      const loader = new GLTFLoader();
+      loader.setDRACOLoader(dracoLoader);
+      loader.load(MODEL_URL, (gltf) => {
         const m = gltf.scene;
         m.traverse((o) => {
           if (o.isMesh) { o.castShadow = true; o.frustumCulled = true; }
