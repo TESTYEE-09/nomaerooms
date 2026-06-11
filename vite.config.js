@@ -1,11 +1,22 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  base: './',           // relative paths so it works under /nomaerooms/ on GH Pages
+  base: './',
   build: {
-    target: 'es2020',
+    target: 'es2015',
     sourcemap: false,
     chunkSizeWarningLimit: 2000,
+    minify: 'esbuild',
+    rollupOptions: {
+      output: {
+        format: 'iife',
+        name: 'NomaeROOMS',
+        entryFileNames: 'assets/index.js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name].[ext]',
+        inlineDynamicImports: true,
+      },
+    },
   },
   server: {
     host: true,

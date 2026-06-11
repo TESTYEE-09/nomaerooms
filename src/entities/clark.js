@@ -15,6 +15,7 @@ const REPATH_S = 0.7;
 
 export class Clark {
   constructor(scene) {
+    console.log('[clark] constructor called');
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.visible = false;
