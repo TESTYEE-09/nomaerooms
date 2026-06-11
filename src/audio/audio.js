@@ -219,34 +219,52 @@ export class AudioEngine {
     const ctx = this.ctx;
     const t0 = ctx.currentTime;
 
+    // impact stinger at the very start
+    const stinger = ctx.createOscillator();
+    stinger.type = 'square';
+    stinger.frequency.setValueAtTime(120, t0);
+    stinger.frequency.exponentialRampToValueAtTime(320, t0 + 0.03);
+    stinger.frequency.exponentialRampToValueAtTime(60, t0 + 0.35);
+    const stingerG = ctx.createGain();
+    stingerG.gain.setValueAtTime(0.0001, t0);
+    stingerG.gain.exponentialRampToValueAtTime(0.5, t0 + 0.01);
+    stingerG.gain.exponentialRampToValueAtTime(0.001, t0 + 0.4);
+    const stingerW = ctx.createWaveShaper();
+    stingerW.curve = this._distCurve(200);
+    stinger.connect(stingerW).connect(stingerG).connect(this.master);
+    stinger.start(t0);
+    stinger.stop(t0 + 0.5);
+
     // layered scream: detuned saw cluster swept down through a screechy bandpass
     for (const det of [0, 23, -31, 47, -57]) {
       const o = ctx.createOscillator();
       o.type = 'sawtooth';
-      o.frequency.setValueAtTime(720, t0);
-      o.frequency.exponentialRampToValueAtTime(140, t0 + 1.0);
-      o.detune.value = det * 4;
+      o.frequency.setValueAtTime(880, t0);
+      o.frequency.exponentialRampToValueAtTime(120, t0 + 1.0);
+      o.detune.value = det * 5;
       const f = ctx.createBiquadFilter();
       f.type = 'bandpass';
-      f.frequency.setValueAtTime(1500, t0);
-      f.frequency.exponentialRampToValueAtTime(300, t0 + 1.0);
-      f.Q.value = 1.4;
+      f.frequency.setValueAtTime(2000, t0);
+      f.frequency.exponentialRampToValueAtTime(250, t0 + 1.0);
+      f.Q.value = 2.0;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.22, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.28, t0 + 0.02);
       g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.15);
-      o.connect(f).connect(g).connect(this.master);
+      const w = ctx.createWaveShaper();
+      w.curve = this._distCurve(100);
+      o.connect(f).connect(w).connect(g).connect(this.master);
       o.start(t0);
       o.stop(t0 + 1.2);
     }
-    // noise crash
+    // noise crash — wider, louder
     const n = ctx.createBufferSource();
     n.buffer = this._noiseBuffer(1.2);
     const nf = ctx.createBiquadFilter();
     nf.type = 'highpass';
-    nf.frequency.value = 300;
+    nf.frequency.value = 200;
     const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.35, t0);
+    ng.gain.setValueAtTime(0.5, t0);
     ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9);
     n.connect(nf).connect(ng).connect(this.master);
     n.start(t0);
@@ -254,39 +272,49 @@ export class AudioEngine {
     for (const off of [0.15, 0.5, 0.85]) {
       const cn = ctx.createBufferSource();
       cn.buffer = this._noiseBuffer(0.25);
-      cn.playbackRate.value = 0.55;
+      cn.playbackRate.value = 0.45;
       const cf = ctx.createBiquadFilter();
       cf.type = 'bandpass';
-      cf.frequency.value = 480;
-      cf.Q.value = 0.8;
+      cf.frequency.value = 520;
+      cf.Q.value = 1.2;
       const cg = ctx.createGain();
       cg.gain.setValueAtTime(0.0001, t0 + off);
-      cg.gain.exponentialRampToValueAtTime(0.5, t0 + off + 0.015);
-      cg.gain.exponentialRampToValueAtTime(0.001, t0 + off + 0.16);
+      cg.gain.exponentialRampToValueAtTime(0.6, t0 + off + 0.015);
+      cg.gain.exponentialRampToValueAtTime(0.001, t0 + off + 0.18);
       cn.connect(cf).connect(cg).connect(this.master);
       cn.start(t0 + off);
       const jaw = ctx.createOscillator();
       jaw.type = 'sine';
-      jaw.frequency.setValueAtTime(70, t0 + off);
-      jaw.frequency.exponentialRampToValueAtTime(32, t0 + off + 0.1);
+      jaw.frequency.setValueAtTime(80, t0 + off);
+      jaw.frequency.exponentialRampToValueAtTime(28, t0 + off + 0.12);
       const jg = ctx.createGain();
-      jg.gain.setValueAtTime(0.45, t0 + off);
-      jg.gain.exponentialRampToValueAtTime(0.001, t0 + off + 0.14);
+      jg.gain.setValueAtTime(0.55, t0 + off);
+      jg.gain.exponentialRampToValueAtTime(0.001, t0 + off + 0.16);
       jaw.connect(jg).connect(this.master);
       jaw.start(t0 + off);
-      jaw.stop(t0 + off + 0.16);
+      jaw.stop(t0 + off + 0.18);
     }
 
-    // sub impact
+    // sub impact deeper
     const s = ctx.createOscillator();
     s.type = 'sine';
-    s.frequency.setValueAtTime(90, t0);
-    s.frequency.exponentialRampToValueAtTime(28, t0 + 0.7);
+    s.frequency.setValueAtTime(100, t0);
+    s.frequency.exponentialRampToValueAtTime(22, t0 + 0.7);
     const sg = ctx.createGain();
-    sg.gain.setValueAtTime(0.5, t0);
-    sg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.8);
+    sg.gain.setValueAtTime(0.6, t0);
+    sg.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9);
     s.connect(sg).connect(this.master);
     s.start(t0);
-    s.stop(t0 + 0.9);
+    s.stop(t0 + 1.0);
+  }
+
+  _distCurve(amount) {
+    const samples = 256;
+    const curve = new Float32Array(samples);
+    for (let i = 0; i < samples; i++) {
+      const x = (i * 2) / samples - 1;
+      curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+    }
+    return curve;
   }
 }

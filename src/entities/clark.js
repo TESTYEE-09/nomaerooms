@@ -51,7 +51,7 @@ export class Clark {
       });
       this._model = gltf.scene;
       this._brightenModelMaterial(this._model);
-      this._model.scale.setScalar(2.0);
+      this._model.scale.setScalar(1.75);
       this.group.add(this._model);
       console.log('[clark] pirate model loaded');
     } catch (e) {

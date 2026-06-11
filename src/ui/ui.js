@@ -249,7 +249,13 @@ export class UI {
 
   scareFlash() {
     this.el.canvas.classList.remove('scare');
-    void this.el.canvas.offsetWidth; // restart animation
+    void this.el.canvas.offsetWidth;
     this.el.canvas.classList.add('scare');
+    const overlay = this.el.scareOverlay;
+    if (overlay) {
+      overlay.classList.remove('active');
+      void overlay.offsetWidth;
+      overlay.classList.add('active');
+    }
   }
 }

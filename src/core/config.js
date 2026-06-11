@@ -1,7 +1,7 @@
 // World + gameplay constants shared across modules.
 
 export const CELL = 4;            // metres per maze cell
-export const WALL_H = 3.1;        // ceiling height
+export const WALL_H = 3.6;        // ceiling height
 export const WALL_T = 0.32;      // wall thickness
 export const CHUNK_CELLS = 8;     // cells per chunk side
 export const CHUNK_SIZE = CELL * CHUNK_CELLS; // 32 m
