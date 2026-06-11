@@ -143,7 +143,7 @@ export class UI {
   showDeath() { this._show('death'); }
   setBusy(b) {
     this.el.hostBtn.disabled = b;
-    this.el.joinBtn.disabled = b;
+    if (this.el.joinBtn) this.el.joinBtn.disabled = b;
     if (b) { this.el.menuError.classList.add('hidden'); }
   }
 
@@ -160,14 +160,14 @@ export class UI {
   }
 
   // ---- chat ----
-  get chatOpen() { return !this.el.chatWrap.classList.contains('hidden'); }
+  get chatOpen() { return !this.el.chatInputWrap.classList.contains('hidden'); }
   openChat() {
-    this.el.chatWrap.classList.remove('hidden');
+    this.el.chatInputWrap.classList.remove('hidden');
     this.el.chatInput.value = '';
     this.el.chatInput.focus();
   }
   closeChat() {
-    this.el.chatWrap.classList.add('hidden');
+    this.el.chatInputWrap.classList.add('hidden');
     this.el.chatInput.blur();
     this.el.canvas.focus?.();
   }
