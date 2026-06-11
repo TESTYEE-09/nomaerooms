@@ -1,7 +1,7 @@
 // Clark AI — OpenAI Realtime API via WebRTC for voice, with chat completions fallback.
 // Clark speaks to nearby players as Captain Pirate Clark from the Backrooms.
 
-const OPENAI_KEY = import.meta.env.VITE_OPENAI_KEY || '';
+const RELAY_URL = (import.meta.env?.VITE_RELAY_URL) || 'https://nomaerooms-relay.onrender.com';
 const REALTIME_MODEL = 'gpt-4o-mini-realtime-preview-2024-12-17';
 const CHAT_MODEL = 'gpt-4o-mini';
 
@@ -50,10 +50,6 @@ export class ClarkAI {
   set onSpeech(fn) { this._onSpeech = fn; }
 
   async init() {
-    if (!OPENAI_KEY) {
-      console.warn('[clark-ai] No OpenAI key — AI voice disabled');
-      return;
-    }
     try {
       await this._initRealtime();
       console.log('[clark-ai] Realtime API connected');
@@ -65,12 +61,9 @@ export class ClarkAI {
   }
 
   async _initRealtime() {
-    const res = await fetch('https://api.openai.com/v1/realtime/sessions', {
+    const res = await fetch(`${RELAY_URL}/ai/realtime-session`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENAI_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: REALTIME_MODEL,
         voice: 'ash',
@@ -237,12 +230,9 @@ export class ClarkAI {
         this._chatHistory = [this._chatHistory[0], ...this._chatHistory.slice(-6)];
       }
 
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch(`${RELAY_URL}/ai/chat`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${OPENAI_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: CHAT_MODEL,
           messages: this._chatHistory,

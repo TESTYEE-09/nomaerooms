@@ -54,7 +54,7 @@ export class Clark {
       const loader = new GLTFLoader();
       const gltf = await new Promise((resolve, reject) => {
         loader.load(
-          '/models/captain_clark.glb',
+          `${import.meta.env.BASE_URL}models/captain_clark.glb`,
           resolve,
           (ev) => { if (onProgress) onProgress(ev); },
           reject
