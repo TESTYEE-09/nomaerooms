@@ -2,7 +2,7 @@
 // Clark speaks to nearby players as Captain Pirate Clark from the Backrooms.
 
 const RELAY_URL = (import.meta.env?.VITE_RELAY_URL) || 'https://nomaerooms-relay.onrender.com';
-const REALTIME_MODEL = 'gpt-4o-mini-realtime-preview-2024-12-17';
+const REALTIME_MODEL = 'gpt-4o-realtime-preview-2024-12-17';
 const CHAT_MODEL = 'gpt-4o-mini';
 
 const SYSTEM_PROMPT = `You are Captain Pirate Clark, a terrifying entity trapped in the Backrooms — those infinite, yellow-lit, damp-carpeted rooms that stretch forever. You were once a fearsome pirate captain, and you still speak like one: nautical metaphors, pirate slang, a deep menacing growl. You hunt the lost souls who noclip into these endless rooms.
@@ -27,6 +27,13 @@ import { settings } from '../core/settings.js';
 const PROXIMITY_DIST = 20;
 const SPEAK_COOLDOWN = 8000;
 const AMBIENT_INTERVAL = 15000;
+const FALLBACK_LINES = [
+  'Arrr... I smell fresh meat in the yellow halls.',
+  'Har har har... the carpet remembers every footstep.',
+  'Lost soul, your little light is flickering.',
+  'The sea took my ship, but these rooms gave me teeth.',
+  'Stay in the buzz, rat... I’m closer than you think.',
+];
 
 export class ClarkAI {
   constructor() {
@@ -34,6 +41,7 @@ export class ClarkAI {
     this.dc = null;
     this.audioEl = null;
     this.audioCtx = null;
+    this._silentCtx = null;
     this.gainNode = null;
     this.pannerNode = null;
     this.active = false;
@@ -42,6 +50,7 @@ export class ClarkAI {
     this.lastAmbient = 0;
     this.pendingText = null;
     this._fallback = false;
+    this._fallbackReason = '';
     this._chatHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
     this._speaking = false;
     this._onSpeech = null;
@@ -54,13 +63,17 @@ export class ClarkAI {
       await this._initRealtime();
       console.log('[clark-ai] Realtime API connected');
     } catch (e) {
-      console.warn('[clark-ai] Realtime API failed, using fallback:', e);
       this._fallback = true;
+      this._fallbackReason = e?.message || String(e);
+      console.warn('[clark-ai] Realtime API failed, using fallback:', this._fallbackReason);
       this._initFallbackAudio();
     }
   }
 
   async _initRealtime() {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) throw new Error('WebAudio is not available in this browser');
+
     const res = await fetch(`${RELAY_URL}/ai/realtime-session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -71,53 +84,91 @@ export class ClarkAI {
         input_audio_transcription: { model: 'whisper-1' },
       }),
     });
-    if (!res.ok) throw new Error(`Session creation failed: ${res.status}`);
-    const data = await res.json();
-    const token = data.client_secret?.value;
-    if (!token) throw new Error('No ephemeral token');
+    const body = await res.text().catch(() => '');
+    if (!res.ok) throw new Error(`Session creation failed: ${res.status} ${body}`.trim());
+
+    let data;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      throw new Error(`Session creation returned invalid JSON: ${body.slice(0, 200)}`);
+    }
+
+    const token = data.client_secret?.value || data.client_secret || data.ephemeral_key || data.token;
+    if (!token) throw new Error(`No ephemeral token in ${JSON.stringify(Object.keys(data))}`);
 
     this.pc = new RTCPeerConnection();
-
     this.audioEl = document.createElement('audio');
     this.audioEl.autoplay = true;
+    this.audioEl.playsInline = true;
+    this.audioEl.muted = true;
+    document.body.appendChild(this.audioEl);
 
     this.pc.ontrack = (e) => {
       const stream = e.streams[0];
+      if (!stream) return;
       this.audioEl.srcObject = stream;
-      this._setupSpatialAudio(stream);
+      void this._setupSpatialAudio(stream);
+    };
+    this.pc.onicecandidate = (e) => {
+      if (e.candidate) console.log('[clark-ai] ICE candidate');
+    };
+    this.pc.onconnectionstatechange = () => {
+      console.log('[clark-ai] RTCPeerConnection state:', this.pc.connectionState);
+      if (this.pc.connectionState === 'failed' || this.pc.connectionState === 'closed') {
+        this.connected = false;
+      }
     };
 
-    // Add silent audio track (required by the API even without mic input)
-    const silentCtx = new AudioContext();
+    // The Realtime WebRTC API expects an audio input track. We send a silent one
+    // because Clark speaks to players without requiring a microphone.
+    const silentCtx = new AudioCtor();
     const oscillator = silentCtx.createOscillator();
     const dest = silentCtx.createMediaStreamDestination();
+    oscillator.frequency.value = 0;
     oscillator.connect(dest);
     oscillator.start();
+    this._silentCtx = silentCtx;
+    await this._resumeAudioContext(silentCtx).catch(() => {});
     const silentTrack = dest.stream.getAudioTracks()[0];
-    silentTrack.enabled = false;
-    this.pc.addTrack(silentTrack);
+    if (silentTrack) {
+      silentTrack.enabled = false;
+      this.pc.addTrack(silentTrack);
+    }
 
     this.dc = this.pc.createDataChannel('oai-events');
     this.dc.onopen = () => {
       this.connected = true;
+      console.log('[clark-ai] Realtime data channel open');
       this._sendEvent({
         type: 'session.update',
         session: {
           modalities: ['text', 'audio'],
           instructions: SYSTEM_PROMPT,
           voice: 'ash',
+          output_audio_format: 'pcm16',
           turn_detection: null,
         },
       });
     };
-    this.dc.onmessage = (e) => this._handleRealtimeEvent(JSON.parse(e.data));
-    this.dc.onclose = () => { this.connected = false; };
+    this.dc.onmessage = (e) => {
+      try {
+        this._handleRealtimeEvent(JSON.parse(e.data));
+      } catch (err) {
+        console.warn('[clark-ai] Bad realtime event:', err, e.data);
+      }
+    };
+    this.dc.onerror = (e) => console.warn('[clark-ai] Realtime data channel error:', e);
+    this.dc.onclose = () => {
+      console.log('[clark-ai] Realtime data channel closed');
+      this.connected = false;
+    };
 
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
 
     const sdpRes = await fetch(
-      `https://api.openai.com/v1/realtime?model=${REALTIME_MODEL}`,
+      `https://api.openai.com/v1/realtime?model=${encodeURIComponent(REALTIME_MODEL)}`,
       {
         method: 'POST',
         headers: {
@@ -127,31 +178,72 @@ export class ClarkAI {
         body: offer.sdp,
       }
     );
-    if (!sdpRes.ok) throw new Error(`SDP exchange failed: ${sdpRes.status}`);
-    const answerSdp = await sdpRes.text();
-    await this.pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    const sdpBody = await sdpRes.text().catch(() => '');
+    if (!sdpRes.ok) throw new Error(`SDP exchange failed: ${sdpRes.status} ${sdpBody}`.trim());
+
+    await this.pc.setRemoteDescription({ type: 'answer', sdp: sdpBody });
+    await this.unlockAudio();
   }
 
-  _setupSpatialAudio(stream) {
-    this.audioCtx = new AudioContext();
+  async _setupSpatialAudio(stream) {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return;
+
+    if (this.audioCtx?.state !== 'closed') {
+      try { this.audioCtx?.close?.(); } catch {}
+    }
+
+    this.audioCtx = new AudioCtor();
     const source = this.audioCtx.createMediaStreamSource(stream);
     this.gainNode = this.audioCtx.createGain();
     this.pannerNode = this.audioCtx.createStereoPanner();
     source.connect(this.gainNode);
     this.gainNode.connect(this.pannerNode);
     this.pannerNode.connect(this.audioCtx.destination);
+
+    if (!this.audioEl.parentNode) document.body.appendChild(this.audioEl);
+    this.audioEl.srcObject = stream;
+    this.audioEl.autoplay = true;
+    this.audioEl.playsInline = true;
     this.audioEl.muted = true;
+    await this._resumeAudioContext(this.audioCtx).catch(() => {});
+    await this.audioEl.play().catch((e) => console.warn('[clark-ai] Remote audio autoplay blocked:', e));
+    this.updateSpatial(this.audioCtx.currentTime, 0, 0, 0);
+  }
+
+  async _resumeAudioContext(ctx) {
+    if (ctx?.state === 'suspended') await ctx.resume();
   }
 
   _initFallbackAudio() {
-    this.audioCtx = new AudioContext();
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return;
+    if (this.audioCtx?.state !== 'closed') {
+      try { this.audioCtx?.close?.(); } catch {}
+    }
+    this.audioCtx = new AudioCtor();
     this.gainNode = this.audioCtx.createGain();
     this.gainNode.connect(this.audioCtx.destination);
+    this.gainNode.gain.value = settings.clarkVolume ?? 0.8;
+    void this._resumeAudioContext(this.audioCtx).catch(() => {});
+  }
+
+  unlockAudio() {
+    return Promise.allSettled([
+      this._resumeAudioContext(this.audioCtx),
+      this._resumeAudioContext(this._silentCtx),
+      this.audioEl?.srcObject && !this.audioEl.paused ? Promise.resolve() : this.audioEl?.play().catch(() => {}),
+    ].filter(Boolean));
   }
 
   _sendEvent(event) {
     if (this.dc?.readyState === 'open') {
-      this.dc.send(JSON.stringify(event));
+      try {
+        this.dc.send(JSON.stringify(event));
+      } catch (e) {
+        console.warn('[clark-ai] Failed to send realtime event:', e);
+        this.connected = false;
+      }
     }
   }
 
@@ -163,6 +255,10 @@ export class ClarkAI {
       this._speaking = false;
     } else if (event.type === 'response.audio.delta') {
       this._speaking = true;
+    } else if (event.type === 'error') {
+      console.warn('[clark-ai] Realtime error:', event);
+      this._speaking = false;
+      this.connected = false;
     }
   }
 
@@ -175,16 +271,22 @@ export class ClarkAI {
     console.log('[clark-ai] say()', this._fallback ? '(fallback)' : '(realtime)', text.slice(0, 60));
 
     if (!this._fallback && this.connected) {
-      this._sendEvent({
-        type: 'conversation.item.create',
-        item: {
-          type: 'message',
-          role: 'user',
-          content: [{ type: 'input_text', text }],
-        },
-      });
-      this._sendEvent({ type: 'response.create' });
-    } else if (this._fallback) {
+      try {
+        this._sendEvent({
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text }],
+          },
+        });
+        this._sendEvent({ type: 'response.create' });
+      } catch (e) {
+        console.warn('[clark-ai] Realtime send failed, using fallback:', e);
+        this._fallback = true;
+        this._fallbackSay(text);
+      }
+    } else {
       this._fallbackSay(text);
     }
   }
@@ -212,7 +314,9 @@ export class ClarkAI {
   }
 
   updateSpatial(clarkX, clarkZ, playerX, playerZ) {
-    if (!this.gainNode) return;
+    if (!this.gainNode || !this.audioCtx) return;
+    if (this.audioCtx.state === 'suspended') void this._resumeAudioContext(this.audioCtx);
+
     const dist = Math.hypot(clarkX - playerX, clarkZ - playerZ);
     const volume = Math.max(0, 1 - dist / PROXIMITY_DIST) * (settings.clarkVolume ?? 0.8);
     this.gainNode.gain.setTargetAtTime(volume * 1.5, this.audioCtx.currentTime, 0.1);
@@ -241,42 +345,106 @@ export class ClarkAI {
           temperature: 0.9,
         }),
       });
+      const body = await res.text().catch(() => '');
+      let text = null;
 
-      if (!res.ok) {
-        console.warn('[clark-ai] chat completions failed:', res.status, await res.text().catch(() => ''));
-        this._speaking = false;
-        return;
+      if (res.ok) {
+        try {
+          const data = JSON.parse(body);
+          text = data.choices?.[0]?.message?.content;
+        } catch {}
+      } else {
+        console.warn('[clark-ai] chat completions failed:', res.status, body);
       }
-      const data = await res.json();
-      const text = data.choices?.[0]?.message?.content;
-      if (!text) { console.warn('[clark-ai] empty response from chat'); this._speaking = false; return; }
+
+      if (!text) {
+        text = FALLBACK_LINES[(Math.random() * FALLBACK_LINES.length) | 0];
+      }
 
       this._chatHistory.push({ role: 'assistant', content: text });
       this._onSpeech?.(text);
       this._speakWithTTS(text);
     } catch (e) {
       console.warn('[clark-ai] fallback error:', e);
-      this._speaking = false;
+      const text = FALLBACK_LINES[(Math.random() * FALLBACK_LINES.length) | 0];
+      this._onSpeech?.(text);
+      this._speakWithTTS(text);
     }
   }
 
   _speakWithTTS(text) {
-    if (!('speechSynthesis' in window)) { this._speaking = false; return; }
+    if (!('speechSynthesis' in window)) {
+      this._playFallbackGrowl();
+      return;
+    }
+
+    void this._resumeAudioContext(this.audioCtx).catch(() => {});
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.8;
-    utter.pitch = 0.4;
-    utter.volume = (settings.clarkVolume ?? 0.8) * (this.gainNode ? this.gainNode.gain.value : 1);
-    utter.onend = () => { this._speaking = false; };
-    utter.onerror = () => { this._speaking = false; };
-    speechSynthesis.speak(utter);
+    utter.rate = 0.82;
+    utter.pitch = 0.42;
+    utter.volume = Math.max(0.05, (settings.clarkVolume ?? 0.8) * (this.gainNode ? this.gainNode.gain.value : 1));
+
+    const voices = speechSynthesis.getVoices();
+    const preferred = voices.find((v) => /male|daniel|fred|alex|google us english/i.test(`${v.name} ${v.lang}`));
+    if (preferred) utter.voice = preferred;
+
+    const done = () => { this._speaking = false; };
+    utter.onend = done;
+    utter.onerror = () => {
+      console.warn('[clark-ai] speechSynthesis error');
+      this._playFallbackGrowl();
+    };
+
+    try {
+      speechSynthesis.speak(utter);
+    } catch (e) {
+      console.warn('[clark-ai] speechSynthesis blocked:', e);
+      this._playFallbackGrowl();
+    }
+  }
+
+  _playFallbackGrowl() {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) {
+      this._speaking = false;
+      return;
+    }
+    if (this.audioCtx?.state === 'closed') this.audioCtx = null;
+    if (!this.audioCtx) {
+      this.audioCtx = new AudioCtor();
+      this.gainNode = this.audioCtx.createGain();
+      this.gainNode.connect(this.audioCtx.destination);
+    }
+    void this._resumeAudioContext(this.audioCtx).catch(() => {});
+
+    const ctx = this.audioCtx;
+    const osc = ctx.createOscillator();
+    const filt = ctx.createBiquadFilter();
+    const g = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(95, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(42, ctx.currentTime + 0.55);
+    filt.type = 'lowpass';
+    filt.frequency.value = 420;
+    g.gain.setValueAtTime(0.001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.22 * (settings.clarkVolume ?? 0.8), ctx.currentTime + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.75);
+    osc.connect(filt).connect(g).connect(this.gainNode);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.8);
+    osc.onended = () => { this._speaking = false; };
   }
 
   destroy() {
+    speechSynthesis?.cancel?.();
     this.dc?.close();
     this.pc?.close();
     this.audioCtx?.close();
+    this._silentCtx?.close();
+    this.audioEl?.remove();
     this.pc = null;
     this.dc = null;
+    this.audioEl = null;
     this.connected = false;
     this._speaking = false;
   }

@@ -74,6 +74,7 @@ clark.load((ev) => {
 // audio + menu music need a user gesture
 ui.onAnyClick = () => {
   audio.init();
+  void clarkAI.unlockAudio();
   if (state === 'menu') audio.playMenuMusic();
 };
 

@@ -95,12 +95,15 @@ export class Clark {
         if (child.isMesh) {
           child.castShadow = true;
           child.frustumCulled = false;
+          this._brightenModelMaterial(child.material);
         }
       });
 
       this._model = model;
       this.group.add(model);
       this._glbLoaded = true;
+
+      console.log('[clark] GLB loaded, bounds', box.min.toArray().map((v) => +v.toFixed(2)), box.max.toArray().map((v) => +v.toFixed(2)));
 
       // set up animation mixer if the model has animations
       if (gltf.animations?.length) {
@@ -116,6 +119,25 @@ export class Clark {
       this._model = this._createFallbackModel();
       this.group.add(this._model);
       if (onProgress) onProgress({ loaded: 1, total: 1 });
+    }
+  }
+
+  _brightenModelMaterial(material) {
+    const materials = Array.isArray(material) ? material : [material];
+    for (const mat of materials) {
+      if (!mat) continue;
+      // The Sketchfab pirate texture is very dark and the Backrooms post-process
+      // crushes it further. Keep the texture, but lift color/emissive so Clark is
+      // readable even when he steps out of the fluorescents.
+      mat.color = mat.color?.clone?.() || new THREE.Color(1, 1, 1);
+      mat.color.multiplyScalar(1.55);
+      mat.color.offsetHSL(0, 0.08, 0.16);
+      mat.emissive = mat.emissive?.clone?.() || new THREE.Color(0, 0, 0);
+      mat.emissive.lerp(new THREE.Color(0xff8a35), 0.32);
+      mat.emissiveIntensity = Math.max(mat.emissiveIntensity ?? 0, 0.28);
+      mat.roughness = Math.min(mat.roughness ?? 1, 0.82);
+      mat.toneMapped = true;
+      mat.needsUpdate = true;
     }
   }
 
