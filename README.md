@@ -12,6 +12,10 @@ Get lost with friends. Watch out for **Pirate Clark**.
 - Click **PLAY** — everyone joins the same room automatically.
 - No room codes, no accounts, no servers — pure WebSocket relay.
 - Wander the infinite maze together. Proximity chat with **T**.
+- One of you is **the Hunted** — Clark hunts them. Protect them; the Hunted can
+  press **F** near an ally to swap places.
+- Find **flashlights** (pick up with **E**) and **almond water** bottles on the
+  floor — drinking one refills your stamina and makes you faster for a few seconds.
 - Something tall walks these halls. It starts far away. It doesn't stay there.
 
 | Key | Action |
@@ -19,6 +23,8 @@ Get lost with friends. Watch out for **Pirate Clark**.
 | WASD | move |
 | Mouse | look |
 | Shift | sprint (watch your stamina) |
+| E | pick up a flashlight |
+| F | swap places (Hunted only, near an ally) |
 | T / Enter | open chat · Enter sends · Esc closes |
 | Esc | pause menu |
 
@@ -29,7 +35,7 @@ Mobile: left half of the screen is a move stick, right half looks, with RUN/CHAT
 - **Three.js** — PBR materials with fully procedural textures (green damask wallpaper,
   damp carpet, ceiling tiles — painted on canvases at boot, with derived normal +
   roughness maps), ACES filmic tone mapping, dynamic shadow-casting fluorescents,
-  and an EffectComposer stack: SSAO → bloom → film grain / vignette / chromatic
+  and an EffectComposer stack: bloom → film grain / vignette / chromatic
   aberration "dread" grade that intensifies as Clark closes in.
 - **Infinite world** — deterministic chunked maze generated from a shared seed;
   every peer (and the AI) derives the identical layout from pure hash functions.

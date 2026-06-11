@@ -37,6 +37,17 @@ function pillarBox(cx, cz) {
   return g;
 }
 
+// almond water: glassy bottle silhouette (body + neck + cap), instanced per chunk
+function bottleGeometry() {
+  const body = new THREE.CylinderGeometry(0.05, 0.06, 0.24, 10);
+  body.translate(0, 0.12, 0);
+  const neck = new THREE.CylinderGeometry(0.02, 0.045, 0.08, 8);
+  neck.translate(0, 0.28, 0);
+  const cap = new THREE.CylinderGeometry(0.023, 0.023, 0.035, 8);
+  cap.translate(0, 0.335, 0);
+  return mergeGeometries([body, neck, cap]);
+}
+
 export class ChunkManager {
   constructor(scene, materials) {
     this.scene = scene;
@@ -46,6 +57,14 @@ export class ChunkManager {
     this._buildQueue = [];
     this._center = { x: 1e9, z: 1e9 };
     this._objectPlacer = null; // set externally by main.js
+    this.drunk = new Set();    // "cx,cz" cells whose bottle was consumed
+    this._bottleGeo = bottleGeometry();
+    this._bottleMat = new THREE.MeshStandardMaterial({
+      color: 0xdfe9ee, roughness: 0.25, metalness: 0,
+      transparent: true, opacity: 0.88,
+      emissive: 0x3a444b, emissiveIntensity: 0.6,
+    });
+    this._zeroM = new THREE.Matrix4().makeScale(0, 0, 0);
   }
 
   set objectPlacer(op) { this._objectPlacer = op; }
@@ -97,6 +116,7 @@ export class ChunkManager {
     const wallGeos = [];
     const colliders = [];
     const fixtures = [];
+    const bottles = [];
 
     const addCollider = (cx, cz, hx, hz) => {
       colliders.push({ minX: cx - hx, maxX: cx + hx, minZ: cz - hz, maxZ: cz + hz });
@@ -122,6 +142,12 @@ export class ChunkManager {
         if (gen.pillar(cx, cz)) {
           wallGeos.push(pillarBox(midX, midZ));
           addCollider(midX, midZ, 0.35, 0.35);
+        }
+        if (gen.bottle(cx, cz)) {
+          // nudge off-centre deterministically so rooms don't look gridded
+          const ox = (gen.fixtureSteadiness(cx + 31, cz) - 0.5) * CELL * 0.5;
+          const oz = (gen.fixtureSteadiness(cx, cz + 57) - 0.5) * CELL * 0.5;
+          bottles.push({ x: midX + ox, z: midZ + oz, key: cx + ',' + cz });
         }
         if (gen.fixture(cx, cz)) {
           fixtures.push({
@@ -186,6 +212,19 @@ export class ChunkManager {
       group.add(frames, glowMesh);
     }
 
+    // almond water bottles
+    if (bottles.length) {
+      const mesh = new THREE.InstancedMesh(this._bottleGeo, this._bottleMat, bottles.length);
+      const m = new THREE.Matrix4();
+      bottles.forEach((b, i) => {
+        b.mesh = mesh;
+        b.instance = i;
+        if (this.drunk.has(b.key)) mesh.setMatrixAt(i, this._zeroM);
+        else { m.makeTranslation(b.x, 0, b.z); mesh.setMatrixAt(i, m); }
+      });
+      group.add(mesh);
+    }
+
     this.scene.add(group);
 
     // build decorative objects for this chunk
@@ -193,15 +232,40 @@ export class ChunkManager {
       this._objectPlacer.addChunk(ccx, ccz);
     }
 
-    return { group, colliders, fixtures, glowMesh };
+    return { group, colliders, fixtures, bottles, glowMesh };
+  }
+
+  // Drink the nearest untouched bottle within `r` of (wx,wz). Returns true if drunk.
+  drinkNear(wx, wz, r = 0.75) {
+    const r2 = r * r;
+    const ccx = Math.floor(wx / CHUNK_SIZE), ccz = Math.floor(wz / CHUNK_SIZE);
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const c = this.chunks.get((ccx + dx) + ',' + (ccz + dz));
+        if (!c?.bottles) continue;
+        for (const b of c.bottles) {
+          if (this.drunk.has(b.key)) continue;
+          const ddx = b.x - wx, ddz = b.z - wz;
+          if (ddx * ddx + ddz * ddz < r2) {
+            this.drunk.add(b.key);
+            b.mesh.setMatrixAt(b.instance, this._zeroM);
+            b.mesh.instanceMatrix.needsUpdate = true;
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   _dispose(chunk, ccx, ccz) {
     this.scene.remove(chunk.group);
     chunk.group.traverse((o) => {
       if (o.isMesh) {
-        o.geometry.dispose();
-        if (o.isInstancedMesh && o.material !== this.materials.fixtureFrame) o.material.dispose();
+        if (o.geometry !== this._bottleGeo) o.geometry.dispose();
+        if (o.isInstancedMesh && o.material !== this.materials.fixtureFrame && o.material !== this._bottleMat) {
+          o.material.dispose();
+        }
       }
     });
     // remove decorative objects for this chunk

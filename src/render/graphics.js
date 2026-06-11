@@ -128,9 +128,12 @@ const DreadShader = {
 
 export class Graphics {
   constructor(canvas) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    // antialias off: the composer renders into an offscreen target, so canvas
+    // MSAA never applies — it only wastes memory/bandwidth
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; // applied by OutputPass
     this.renderer.toneMappingExposure = 1.35;
@@ -142,28 +145,23 @@ export class Graphics {
 
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
-    this.ssaoPass = new SSAOPass(this.scene, this.camera, innerWidth, innerHeight);
-    this.ssaoPass.kernelRadius = 0.5;
-    this.ssaoPass.minDistance = 0.0008;
-    this.ssaoPass.maxDistance = 0.12;
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 0.92);
     this.dreadPass = new ShaderPass(DreadShader);
     this.outputPass = new OutputPass();
 
     this.composer.addPass(this.renderPass);
-    this.composer.addPass(this.ssaoPass);
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(this.dreadPass);
     this.composer.addPass(this.outputPass);
 
     window.addEventListener('resize', () => this._resize());
     this._quality = null;
+    this._frame = 0;
   }
 
   applyQuality(name, fov) {
     const q = QUALITY[name] || QUALITY.medium;
     this._quality = q;
-    this.ssaoPass.enabled = q.ssao;
     this.bloomPass.enabled = q.bloom;
     this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
@@ -184,6 +182,10 @@ export class Graphics {
   setFear(f) { this.dreadPass.uniforms.fear.value = f; }
 
   render(t) {
+    // shadow maps re-render every other frame: light intensity flicker doesn't
+    // need a shadow update, and geometry under the lights changes slowly
+    this._frame ^= 1;
+    if (this._frame === 0) this.renderer.shadowMap.needsUpdate = true;
     this.dreadPass.uniforms.time.value = t;
     this.composer.render();
   }

@@ -71,6 +71,12 @@ export function fixtureSteadiness(x, z) {
   return 0.55 + raw * 0.4;                 // steady
 }
 
+// almond water bottle on the floor of this cell (deterministic, like walls)
+export function bottle(x, z) {
+  if (pillar(x, z)) return false;
+  return hash3(x, z, 13, SEED) < 0.04;
+}
+
 // Can an agent walk from cell a to adjacent cell b? (4-connected)
 export function passable(x, z, nx, nz) {
   if (pillar(nx, nz)) {

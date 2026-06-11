@@ -31,7 +31,7 @@ export const FLASHLIGHT_PICKUP_DIST = 2.5;
 export const FLASHLIGHT_RANGE = 18;
 
 export const QUALITY = {
-  low:    { chunkRadius: 1, lights: 5,  shadowLights: 1, shadowMap: 512,  ssao: false, bloom: true,  pixelRatio: 1.0, fogDensity: 0.075 },
-  medium: { chunkRadius: 2, lights: 8,  shadowLights: 2, shadowMap: 1024, ssao: true,  bloom: true,  pixelRatio: 1.25, fogDensity: 0.055 },
-  high:   { chunkRadius: 2, lights: 12, shadowLights: 4, shadowMap: 1024, ssao: true,  bloom: true,  pixelRatio: 2.0, fogDensity: 0.05 },
+  low:    { chunkRadius: 1, lights: 5,  shadowLights: 0, shadowMap: 512,  bloom: true, pixelRatio: 0.85, fogDensity: 0.075 },
+  medium: { chunkRadius: 2, lights: 8,  shadowLights: 2, shadowMap: 768,  bloom: true, pixelRatio: 1.0,  fogDensity: 0.055 },
+  high:   { chunkRadius: 2, lights: 12, shadowLights: 3, shadowMap: 1024, bloom: true, pixelRatio: 1.5,  fogDensity: 0.05 },
 };

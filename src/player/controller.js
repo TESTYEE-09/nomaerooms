@@ -31,6 +31,7 @@ export class PlayerController {
     this.moving = false;
     this.sprinting = false;
     this.frozen = false;                  // during jumpscare
+    this.boostT = 0;                      // seconds of almond-water speed boost left
     this.hasFlashlight = false;
     this._scene = null;
     this._flashLight = null;
@@ -50,9 +51,12 @@ export class PlayerController {
     this._flashLight.shadow.camera.far = FLASHLIGHT_RANGE;
     this._flashLight.shadow.camera.fov = 45;
     this._flashLight.castShadow = true;
+    // target must live in world space (scene), not as a child of the light —
+    // otherwise the world coords assigned each frame get offset by the light's
+    // own position and the beam aims wherever the player stands, not where
+    // they look
     this._flashTarget = new THREE.Object3D();
-    this._flashTarget.position.set(0, 0, -5);
-    this._flashLight.add(this._flashTarget);
+    scene.add(this._flashTarget);
     this._flashLight.target = this._flashTarget;
     scene.add(this._flashLight);
   }
@@ -90,7 +94,8 @@ export class PlayerController {
       this.stamina = Math.min(STAMINA_MAX, this.stamina + STAMINA_REGEN * dt);
     }
 
-    const targetSpeed = this.sprinting ? SPRINT_SPEED : WALK_SPEED;
+    if (this.boostT > 0) this.boostT -= dt;
+    const targetSpeed = (this.sprinting ? SPRINT_SPEED : WALK_SPEED) * (this.boostT > 0 ? 1.3 : 1);
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     // camera-relative: forward is -Z in camera space
     const wx = (mv.x * cos - mv.y * sin) * targetSpeed;
@@ -142,13 +147,12 @@ export class PlayerController {
     this.camera.rotateY(this.yaw);
     this.camera.rotateX(this.pitch);
 
-    // update flashlight world position to follow the camera
+    // flashlight follows the full look direction (yaw + pitch)
     if (this._flashLight) {
-      const fwd = new THREE.Vector3(0, -0.1, -1);
-      fwd.applyQuaternion(this.camera.quaternion);
-      this._flashLight.position.copy(this.camera.position).add(fwd.clone().multiplyScalar(0.3));
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+      this._flashLight.position.copy(this.camera.position).addScaledVector(fwd, 0.3);
       this._flashLight.position.y -= 0.15;
-      this._flashTarget.position.copy(this.camera.position).add(fwd.clone().multiplyScalar(5));
+      this._flashTarget.position.copy(this.camera.position).addScaledVector(fwd, 6);
     }
 
     // sprint FOV kick

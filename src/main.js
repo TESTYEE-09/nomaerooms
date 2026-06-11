@@ -468,10 +468,15 @@ document.addEventListener('keydown', (e) => {
       }
     }
   }
-  // hunted swap: the hunted player presses F to swap with nearest ally
-  if (state === 'playing' && !ui.chatOpen && e.code === 'KeyF' && huntedId === net.myId && swapReady) {
+  // hunted swap: the hunted player presses F to swap with nearest ally.
+  // Always give feedback — a silent F reads as a broken key.
+  if (state === 'playing' && !ui.chatOpen && e.code === 'KeyF') {
     e.preventDefault();
-    if (net.isHost) {
+    if (huntedId !== net.myId) {
+      ui.toast('only the Hunted can swap');
+    } else if (!swapReady) {
+      ui.toast(`swap recharging (${Math.ceil(swapCooldownTimer)}s)`);
+    } else if (net.isHost) {
       processSwapRequest();
     } else {
       net.sendSwapRequest();
@@ -533,6 +538,14 @@ function frame() {
   const colliders = chunks.collidersNear(player.pos.x, player.pos.z);
   player.update(dt, colliders);
   chunks.update(player.pos.x, player.pos.z, 1);
+
+  // almond water: walk into a bottle to drink it
+  if (state === 'playing' && chunks.drinkNear(player.pos.x, player.pos.z)) {
+    player.stamina = STAMINA_MAX;
+    player.boostT = 8;
+    ui.addChat(null, 'almond water — stamina restored, your legs feel lighter', { system: true });
+    audio.chatPing();
+  }
   lights.update(t, player.pos.x, player.pos.z);
   remotes.update(dt, graphics.camera.position);
 
