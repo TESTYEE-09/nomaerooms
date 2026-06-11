@@ -30,6 +30,7 @@ const graphics = new Graphics(ui.el.canvas);
 const input = new Input();
 const audio = new AudioEngine(settings);
 const player = new PlayerController(graphics.camera, input, settings);
+player.initFlashlight(graphics.scene);
 const materials = buildMaterials();
 const chunks = new ChunkManager(graphics.scene, materials);
 const objects = new ObjectPlacer(graphics.scene);
@@ -172,6 +173,8 @@ function leaveToMenu(message = '') {
   objects.clear();
   clark.active = false;
   clark.group.visible = false;
+  player.setFlashlight(false);
+  ui.setFlashlight(false);
   input.releaseLock();
   state = 'menu';
   ui.showMenu(message);
@@ -455,6 +458,7 @@ document.addEventListener('keydown', (e) => {
       if (d < FLASHLIGHT_PICKUP_DIST) {
         objects.removeFlashlight(i);
         player.setFlashlight(true);
+        audio.flashlightOn();
         ui.toast('found a flashlight');
         ui.setFlashlight(true);
         break;

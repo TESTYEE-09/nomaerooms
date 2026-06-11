@@ -32,16 +32,34 @@ export class PlayerController {
     this.sprinting = false;
     this.frozen = false;                  // during jumpscare
     this.hasFlashlight = false;
-    this._flashlight = new THREE.SpotLight(0xffeedd, 0, FLASHLIGHT_RANGE, Math.PI / 5, 0.4, 1.6);
-    this._flashlight.position.set(0.2, -0.15, -0.3);
-    this._flashlight.target.position.set(0, -0.15, -1);
-    this.camera.add(this._flashlight);
-    this.camera.add(this._flashlight.target);
+    this._scene = null;
+    this._flashLight = null;
+    this._flashTarget = null;
+  }
+
+  initFlashlight(scene) {
+    this._scene = scene;
+    this._flashLight = new THREE.SpotLight(0xffeedd, 0, FLASHLIGHT_RANGE, Math.PI / 4, 0.3, 1.2);
+    this._flashLight.angle = Math.PI / 4;
+    this._flashLight.penumbra = 0.3;
+    this._flashLight.decay = 1.2;
+    this._flashLight.distance = FLASHLIGHT_RANGE;
+    this._flashLight.shadow.mapSize.width = 512;
+    this._flashLight.shadow.mapSize.height = 512;
+    this._flashLight.shadow.camera.near = 0.1;
+    this._flashLight.shadow.camera.far = FLASHLIGHT_RANGE;
+    this._flashLight.shadow.camera.fov = 45;
+    this._flashLight.castShadow = true;
+    this._flashTarget = new THREE.Object3D();
+    this._flashTarget.position.set(0, 0, -5);
+    this._flashLight.add(this._flashTarget);
+    this._flashLight.target = this._flashTarget;
+    scene.add(this._flashLight);
   }
 
   setFlashlight(on) {
     this.hasFlashlight = on;
-    this._flashlight.intensity = on ? 2.5 : 0;
+    if (this._flashLight) this._flashLight.intensity = on ? 25 : 0;
   }
 
   teleport(x, z, yaw = Math.random() * Math.PI * 2) {
@@ -116,14 +134,22 @@ export class PlayerController {
     const bobY = Math.abs(Math.sin(this.bobPhase)) * 0.05 * this.bobAmp * air;
     const bobX = Math.sin(this.bobPhase * 0.5) * 0.025 * this.bobAmp * air;
 
-    this.camera.position.set(
-      this.pos.x + Math.cos(this.yaw) * bobX,
-      this.y + EYE_HEIGHT + bobY,
-      this.pos.z - Math.sin(this.yaw) * bobX
-    );
+    const eyeX = this.pos.x + Math.cos(this.yaw) * bobX;
+    const eyeY = this.y + EYE_HEIGHT + bobY;
+    const eyeZ = this.pos.z - Math.sin(this.yaw) * bobX;
+    this.camera.position.set(eyeX, eyeY, eyeZ);
     this.camera.rotation.set(0, 0, 0);
     this.camera.rotateY(this.yaw);
     this.camera.rotateX(this.pitch);
+
+    // update flashlight world position to follow the camera
+    if (this._flashLight) {
+      const fwd = new THREE.Vector3(0, -0.1, -1);
+      fwd.applyQuaternion(this.camera.quaternion);
+      this._flashLight.position.copy(this.camera.position).add(fwd.clone().multiplyScalar(0.3));
+      this._flashLight.position.y -= 0.15;
+      this._flashTarget.position.copy(this.camera.position).add(fwd.clone().multiplyScalar(5));
+    }
 
     // sprint FOV kick
     const baseFov = this.settings.fov;

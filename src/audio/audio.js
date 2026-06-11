@@ -317,4 +317,42 @@ export class AudioEngine {
     }
     return curve;
   }
+
+  flashlightOn() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+
+    // electrical hum/click — short power-on transient
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(180, t0);
+    o.frequency.exponentialRampToValueAtTime(80, t0 + 0.12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.25);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 600;
+    f.Q.value = 2.0;
+    o.connect(f).connect(g).connect(this.sfx);
+    o.start(t0);
+    o.stop(t0 + 0.3);
+
+    // subtle noise burst
+    const n = ctx.createBufferSource();
+    n.buffer = this._noiseBuffer(0.3);
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'bandpass';
+    nf.frequency.value = 800;
+    nf.Q.value = 1.5;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t0);
+    ng.gain.exponentialRampToValueAtTime(0.06, t0 + 0.01);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.2);
+    n.connect(nf).connect(ng).connect(this.sfx);
+    n.start(t0);
+    n.stop(t0 + 0.3);
+  }
 }
