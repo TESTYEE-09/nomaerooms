@@ -6,7 +6,7 @@
   "description": "NomaeROOMS — a multiplayer Backrooms browser game. Get lost with friends. Watch out for Pirate Clark.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node -e \"const fs=require('fs'); let h=fs.readFileSync('dist/index.html','utf8'); h=h.replace(/<script type=\\\"module\\\" crossorigin src=\\\"\\.\\/assets\\/index\\.js\\\"><\\/script>/, '<script src=\\\"./assets/index.js\\\"><\\/script>'); fs.writeFileSync('dist/index.html', h); console.log('Fixed script tag')\"",
     "preview": "vite preview --host"
   },
   "dependencies": {
