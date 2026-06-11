@@ -492,8 +492,7 @@ document.addEventListener('keydown', (e) => {
 
   // weapon use: press Q to shoot Clark — stuns him
   if (state === 'playing' && !ui.chatOpen && e.code === 'KeyQ' && hasWeapon && weaponCooldown <= 0) {
-    const isHunted = huntedId === net.myId;
-    if (!isHunted && clark.active) {
+    if (clark.active) {
       const d = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
       if (d < WEAPON_RANGE && gen.lineOfSight(player.pos.x, player.pos.z, clark.pos.x, clark.pos.z)) {
         e.preventDefault();
@@ -705,8 +704,7 @@ function frame() {
 
   // weapon use hint
   if (hasWeapon && state === 'playing') {
-    const isHunted = huntedId === net.myId;
-    const canStun = !isHunted && clark.active && Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) < WEAPON_RANGE && gen.lineOfSight(player.pos.x, player.pos.z, clark.pos.x, clark.pos.z);
+    const canStun = clark.active && Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) < WEAPON_RANGE && gen.lineOfSight(player.pos.x, player.pos.z, clark.pos.x, clark.pos.z);
     ui.showWeaponHint(canStun);
   } else {
     ui.showWeaponHint(false);
