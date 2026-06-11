@@ -54,6 +54,10 @@ export class UI {
       e.setSens.value = settings.sensitivity; e.sensVal.textContent = settings.sensitivity.toFixed(2);
       e.setVol.value = settings.volume; e.volVal.textContent = Math.round(settings.volume * 100) + '%';
       e.setMusic.value = settings.musicVolume; e.musicVal.textContent = Math.round(settings.musicVolume * 100) + '%';
+      e.setMicEnabled.checked = settings.micEnabled;
+      e.setMicVol.value = settings.micVolume; e.micVolVal.textContent = Math.round(settings.micVolume * 100) + '%';
+      e.setClarkVol.value = settings.clarkVolume; e.clarkVolVal.textContent = Math.round(settings.clarkVolume * 100) + '%';
+      e.setMicVol.closest('label').style.opacity = settings.micEnabled ? '1' : '0.4';
     };
     const openSettings = (from) => {
       this._settingsReturnTo = from;
@@ -69,11 +73,14 @@ export class UI {
       settings.sensitivity = +e.setSens.value;
       settings.volume = +e.setVol.value;
       settings.musicVolume = +e.setMusic.value;
+      settings.micEnabled = e.setMicEnabled.checked;
+      settings.micVolume = +e.setMicVol.value;
+      settings.clarkVolume = +e.setClarkVol.value;
       saveSettings();
       syncSettingsUI();
       this.onSettingsChanged?.();
     };
-    for (const el of [e.setQuality, e.setFov, e.setSens, e.setVol, e.setMusic]) {
+    for (const el of [e.setQuality, e.setFov, e.setSens, e.setVol, e.setMusic, e.setMicEnabled, e.setMicVol, e.setClarkVol]) {
       el.addEventListener('input', onChange);
     }
 

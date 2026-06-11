@@ -76,7 +76,10 @@ export class Clark {
       model.position.set(-cx, -scaledBox.min.y, -cz);
 
       model.traverse((child) => {
-        if (child.isMesh) child.castShadow = true;
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.frustumCulled = false;
+        }
       });
 
       this._model = model;

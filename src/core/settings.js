@@ -9,6 +9,9 @@ const DEFAULTS = {
   volume: 0.8,        // master
   musicVolume: 0.6,
   fov: 75,
+  micEnabled: true,
+  micVolume: 1.0,
+  clarkVolume: 0.8,
 };
 
 export const settings = { ...DEFAULTS };

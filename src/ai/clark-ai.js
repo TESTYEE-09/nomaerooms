@@ -22,6 +22,8 @@ Rules:
 - Occasionally laugh ("Har har har...") or make unsettling sounds.
 - Reference the yellow wallpaper, buzzing fluorescents, damp carpet, the hum.`;
 
+import { settings } from '../core/settings.js';
+
 const PROXIMITY_DIST = 20;
 const SPEAK_COOLDOWN = 8000;
 const AMBIENT_INTERVAL = 15000;
@@ -218,7 +220,7 @@ export class ClarkAI {
   updateSpatial(clarkX, clarkZ, playerX, playerZ) {
     if (!this.gainNode) return;
     const dist = Math.hypot(clarkX - playerX, clarkZ - playerZ);
-    const volume = Math.max(0, 1 - dist / PROXIMITY_DIST);
+    const volume = Math.max(0, 1 - dist / PROXIMITY_DIST) * (settings.clarkVolume ?? 0.8);
     this.gainNode.gain.setTargetAtTime(volume * 1.5, this.audioCtx.currentTime, 0.1);
 
     if (this.pannerNode) {
@@ -268,7 +270,7 @@ export class ClarkAI {
     const utter = new SpeechSynthesisUtterance(text);
     utter.rate = 0.8;
     utter.pitch = 0.4;
-    utter.volume = this.gainNode ? this.gainNode.gain.value : 0.8;
+    utter.volume = (settings.clarkVolume ?? 0.8) * (this.gainNode ? this.gainNode.gain.value : 1);
     utter.onend = () => { this._speaking = false; };
     utter.onerror = () => { this._speaking = false; };
     speechSynthesis.speak(utter);
