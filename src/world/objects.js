@@ -3,14 +3,6 @@ import { hash2 } from '../core/utils.js';
 import { CELL, CHUNK_SIZE, CHUNK_CELLS } from '../core/config.js';
 import * as gen from './generator.js';
 
-function wornMat(baseColor, roughness, metalness) {
-  return new THREE.MeshStandardMaterial({
-    color: baseColor,
-    roughness: roughness + (Math.random() - 0.5) * 0.05,
-    metalness: Math.max(0, metalness + (Math.random() - 0.5) * 0.03),
-  });
-}
-
 const woodMat = (c) => new THREE.MeshStandardMaterial({
   color: c, roughness: 0.7 + Math.random() * 0.15, metalness: 0.0,
 });
@@ -110,68 +102,6 @@ function createFilingCabinet() {
   return g;
 }
 
-function createBox() {
-  const g = new THREE.Group();
-  const sizes = [[0.35, 0.28, 0.3], [0.3, 0.22, 0.38], [0.38, 0.32, 0.28], [0.25, 0.3, 0.25], [0.4, 0.2, 0.35]];
-  const s = sizes[(Math.random() * sizes.length) | 0];
-  const shade = 0x6a + ((Math.random() * 0x40) | 0);
-  const c = (shade << 16) | (shade << 8) | (shade * 0.7);
-  const boxMat = new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
-
-  const box = new THREE.Mesh(new THREE.BoxGeometry(...s), boxMat);
-  box.position.y = s[1] / 2;
-  box.rotation.y = Math.random() * Math.PI;
-  g.add(box);
-
-  return g;
-}
-
-function createVendingMachine() {
-  const g = new THREE.Group();
-  const bodyMat = metalMat(0x3a5a7a);
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x88bbee, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.35,
-  });
-  const glowMat = new THREE.MeshBasicMaterial({ color: 0x88ddff });
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.4, 0.4), bodyMat);
-  body.position.y = 0.7;
-  g.add(body);
-
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.02), glowMat);
-  sign.position.set(0, 1.3, 0.21);
-  g.add(sign);
-
-  const glass = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.02), glassMat);
-  glass.position.set(0, 0.9, 0.21);
-  g.add(glass);
-
-  return g;
-}
-
-function createWaterCooler() {
-  const g = new THREE.Group();
-  const whiteMat = plasticMat(0xe0e0e0);
-  const blueMat = new THREE.MeshStandardMaterial({
-    color: 0x4488cc, roughness: 0.15, transparent: true, opacity: 0.5,
-  });
-  const chromeMat = metalMat(0xcccccc);
-
-  const base = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.45, 0.3), whiteMat);
-  base.position.y = 0.45;
-  g.add(base);
-
-  const tray = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, 0.12), chromeMat);
-  tray.position.set(0, 0.65, 0.12);
-  g.add(tray);
-
-  const jug = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.3, 10), blueMat);
-  jug.position.y = 0.85;
-  g.add(jug);
-
-  return g;
-}
-
 function createLamp() {
   const g = new THREE.Group();
   const poleMat = metalMat(0x4a4a4a);
@@ -214,25 +144,23 @@ function createShelf() {
 }
 
 const BUILDERS = [
-  createOfficeChair, createDesk, createFilingCabinet, createBox,
-  createVendingMachine, createWaterCooler, createLamp, createShelf,
+  createOfficeChair, createDesk, createFilingCabinet,
+  createLamp, createShelf,
 ];
 
 function pickObjectType(cx, cz, seed) {
   const r = hash2(cx, cz, seed);
   const isHallCell = gen.isHall(cx, cz);
   if (isHallCell) {
-    if (r < 0.65) return null;
-    if (r < 0.72) return 'desk';
-    if (r < 0.77) return 'chair';
-    if (r < 0.81) return 'filing';
-    if (r < 0.84) return 'shelf';
-    if (r < 0.87) return 'vending';
-    return 'box';
+    if (r < 0.6) return null;
+    if (r < 0.7) return 'desk';
+    if (r < 0.78) return 'chair';
+    if (r < 0.85) return 'filing';
+    if (r < 0.92) return 'shelf';
+    return 'lamp';
   }
-  if (r < 0.96) return null;
-  if (r < 0.975) return 'chair';
-  if (r < 0.985) return 'box';
+  if (r < 0.97) return null;
+  if (r < 0.985) return 'chair';
   return 'lamp';
 }
 
@@ -241,9 +169,6 @@ function getBuilder(type) {
     case 'chair': return createOfficeChair;
     case 'desk': return createDesk;
     case 'filing': return createFilingCabinet;
-    case 'box': return createBox;
-    case 'vending': return createVendingMachine;
-    case 'cooler': return createWaterCooler;
     case 'lamp': return createLamp;
     case 'shelf': return createShelf;
     default: return null;
@@ -258,8 +183,6 @@ export class ObjectPlacer {
   }
 
   setSeed(seed) { this._seed = seed; }
-
-  loadSketchfabModels() {}
 
   buildChunkObjects(ccx, ccz) {
     const seed = this._seed;

@@ -1,9 +1,11 @@
-// Clark — the entity. Procedural monster model, no GLB dependency.
+// Clark — the entity. Procedural monster model with optional pirate GLB.
 // Tall, gaunt, twitching, with glowing eyes and unsettling movement.
 
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CELL, CLARK_SCARE_DIST } from '../core/config.js';
 import { clamp, damp } from '../core/utils.js';
+import { settings } from '../core/settings.js';
 import * as gen from '../world/generator.js';
 
 export const STATE = { ROAM: 0, STALK: 1, CHASE: 2 };
@@ -38,13 +40,53 @@ export class Clark {
     this.netHeadingTo = 0;
 
     this._model = null;
+    this._pirateGroup = null;
+    this._usePirate = false;
+  }
+
+  syncModel() {
+    this._usePirate = settings.pirateClark && !!this._pirateGroup;
+    if (this._model) this._model.visible = !this._usePirate;
+    if (this._pirateGroup) this._pirateGroup.visible = this._usePirate;
   }
 
   async load(onProgress) {
-    console.log('[clark] load() — building procedural monster');
+    console.log('[clark] load() — building models');
+
+    // always build procedural model
     this._model = this._createMonsterModel();
     this.group.add(this._model);
+
+    // try loading pirate GLB
+    try {
+      const loader = new GLTFLoader();
+      const gltf = await new Promise((res, rej) => {
+        loader.load('/models/captain_clark.glb', res, undefined, rej);
+      });
+      this._pirateGroup = gltf.scene;
+      this._brightenModelMaterial(this._pirateGroup);
+      this._pirateGroup.visible = false;
+      this._pirateGroup.scale.setScalar(2.0);
+      this.group.add(this._pirateGroup);
+      console.log('[clark] pirate model loaded');
+    } catch (e) {
+      console.warn('[clark] pirate model failed to load:', e.message);
+    }
+
     if (onProgress) onProgress({ loaded: 1, total: 1 });
+  }
+
+  _brightenModelMaterial(root) {
+    root.traverse((child) => {
+      if (child.isMesh) {
+        child.material = child.material.clone();
+        child.material.roughness = 0.7;
+        child.material.metalness = 0.0;
+        child.material.color.multiplyScalar(3.5);
+        child.material.needsUpdate = true;
+        child.castShadow = true;
+      }
+    });
   }
 
   _createMonsterModel() {
@@ -205,6 +247,7 @@ export class Clark {
     this.state = STATE.ROAM;
     this.active = true;
     this.group.visible = true;
+    this.syncModel();
   }
 
   teleport(wx, wz) {
@@ -349,6 +392,15 @@ export class Clark {
   _animate(dt) {
     this.group.rotation.y = this.heading - Math.PI / 2;
     if (!this._model) return;
+
+    // pirate model uses simple bob
+    if (this._usePirate && this._pirateGroup) {
+      const k = this.moveAmount;
+      const moving = k > 0.08;
+      const speed = moving ? 5.5 + k * 3.5 : 1.2;
+      this._pirateGroup.position.y = moving ? Math.abs(Math.sin(this.t * speed)) * 0.15 * k : 0;
+      return;
+    }
 
     const k = this.moveAmount;
     const moving = k > 0.08;

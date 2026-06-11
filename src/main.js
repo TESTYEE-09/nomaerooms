@@ -72,9 +72,6 @@ const TIPS = [
 ];
 ui.showLoading(0.02, TIPS[0]);
 
-// Load Sketchfab models in the background
-void objects.loadSketchfabModels();
-
 clark.load((ev) => {
   console.log('[main] clark.load callback fired:', ev);
   if (ev?.total) ui.showLoading(0.05 + 0.9 * (ev.loaded / ev.total), TIPS[(ev.loaded / ev.total * 3.5) | 0]);
@@ -419,6 +416,7 @@ ui.onRespawn = () => {
 };
 ui.onSettingsChanged = () => {
   audio.applyVolumes();
+  clark.syncModel();
   if (state !== 'menu' && state !== 'loading') {
     const q = graphics.applyQuality(settings.quality, settings.fov);
     chunks.setRadius(q.chunkRadius);
