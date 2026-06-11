@@ -453,4 +453,86 @@ export class AudioEngine {
   stopHallucinations() {
     this.stopTinnitus();
   }
+
+  // ---- weapon sounds ----
+
+  weaponUse() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(180, t0);
+    o.frequency.exponentialRampToValueAtTime(280, t0 + 0.06);
+    o.frequency.exponentialRampToValueAtTime(80, t0 + 0.25);
+
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 600;
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(0.25, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.35);
+
+    o.connect(f).connect(g).connect(this.master);
+    o.start(t0);
+    o.stop(t0 + 0.4);
+
+    const n = ctx.createBufferSource();
+    n.buffer = this._noiseBuffer(0.6);
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'highpass';
+    nf.frequency.value = 800;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t0);
+    ng.gain.linearRampToValueAtTime(0.4, t0 + 0.015);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.5);
+    n.connect(nf).connect(ng).connect(this.master);
+    n.start(t0);
+    n.stop(t0 + 0.6);
+  }
+
+  clarkStun() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+
+    for (const det of [-10, 0, 14]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.setValueAtTime(300, t0);
+      o.frequency.exponentialRampToValueAtTime(80, t0 + 0.3);
+      o.detune.value = det * 5;
+
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.setValueAtTime(1200, t0);
+      f.frequency.exponentialRampToValueAtTime(300, t0 + 0.3);
+      f.Q.value = 2;
+
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.18, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.45);
+
+      o.connect(f).connect(g).connect(this.master);
+      o.start(t0);
+      o.stop(t0 + 0.5);
+    }
+
+    const n = ctx.createBufferSource();
+    n.buffer = this._noiseBuffer(0.5);
+    const nf = ctx.createBiquadFilter();
+    nf.type = 'highpass';
+    nf.frequency.value = 200;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t0);
+    ng.gain.linearRampToValueAtTime(0.25, t0 + 0.02);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + 0.4);
+    n.connect(nf).connect(ng).connect(this.master);
+    n.start(t0);
+    n.stop(t0 + 0.5);
+  }
 }

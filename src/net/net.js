@@ -66,6 +66,7 @@ export class Net {
     this.onSwapRequest = null;
     this.onSwapResult = null;
     this.onHuntedWin = null;
+    this.onWeaponStun = null;
   }
 
   // -------- low-level ws helpers --------
@@ -204,6 +205,10 @@ export class Net {
       case 'huntedWin':
         this.onHuntedWin?.();
         break;
+      case 'wp':
+        // guest used a weapon - host processes stun
+        this.onWeaponStun?.(from);
+        break;
       // 'hi' / 'join' / 'leave' / 'wel' are control messages handled by the
       // relay directly, never forwarded. 'relay' is the client→relay form,
       // also not forwarded. Anything else is ignored.
@@ -322,6 +327,11 @@ export class Net {
   sendClarkAI(text) {
     if (!this.isHost || !this.ws) return;
     this._send({ t: 'relay', m: 'ai', text: String(text || '').slice(0, 300) });
+  }
+
+  sendWeaponStun() {
+    if (this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'wp' });
   }
 
   playerCount() {

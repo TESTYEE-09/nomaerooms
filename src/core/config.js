@@ -30,6 +30,11 @@ export const HUNTED_SWAP_COOLDOWN = 30;   // seconds between swaps
 export const FLASHLIGHT_PICKUP_DIST = 2.5;
 export const FLASHLIGHT_RANGE = 18;
 
+export const WEAPON_STUN_DURATION = 4;
+export const WEAPON_RANGE = 20;
+export const WEAPON_PICKUP_DIST = 2.5;
+export const WEAPON_USER_COOLDOWN = 10;
+
 export const QUALITY = {
   low:    { chunkRadius: 1, lights: 5,  shadowLights: 0, shadowMap: 512,  bloom: true, pixelRatio: 0.85, fogDensity: 0.075 },
   medium: { chunkRadius: 2, lights: 8,  shadowLights: 2, shadowMap: 768,  bloom: true, pixelRatio: 1.0,  fogDensity: 0.055 },

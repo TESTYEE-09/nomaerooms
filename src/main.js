@@ -19,7 +19,7 @@ import { ClarkAI } from './ai/clark-ai.js';
 import { Hallucinations } from './effects/hallucinations.js';
 import { loadSettings, settings } from './core/settings.js';
 import { clamp, damp } from './core/utils.js';
-import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL, HUNTED_SURVIVE_TIME, HUNTED_SWAP_RANGE, HUNTED_SWAP_COOLDOWN, FLASHLIGHT_PICKUP_DIST } from './core/config.js';
+import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL, HUNTED_SURVIVE_TIME, HUNTED_SWAP_RANGE, HUNTED_SWAP_COOLDOWN, FLASHLIGHT_PICKUP_DIST, WEAPON_STUN_DURATION, WEAPON_RANGE, WEAPON_PICKUP_DIST, WEAPON_USER_COOLDOWN } from './core/config.js';
 
 console.log('[main] module starting');
 console.log('[main] Clark imported:', typeof Clark);
@@ -49,6 +49,10 @@ let fear = 0;
 let sendAcc = 0, clarkAcc = 0, aiAcc = 0;
 let myColor = '#7da2ff';
 const deadPeers = new Set();
+
+// weapon state
+let hasWeapon = false;
+let weaponCooldown = 0;
 
 // hunted mode state (host-authoritative)
 let huntedId = null;           // peer id of the hunted player
@@ -142,6 +146,9 @@ function startGame(seed, code) {
   player.frozen = false;
   player.setFlashlight(false);
   ui.setFlashlight(false);
+  hasWeapon = false;
+  weaponCooldown = 0;
+  ui.setWeapon(false);
 
   // build the whole initial radius in one go (loading is already shown)
   chunks.update(player.pos.x, player.pos.z, 999);
@@ -178,6 +185,8 @@ function leaveToMenu(message = '') {
   clark.group.visible = false;
   player.setFlashlight(false);
   ui.setFlashlight(false);
+  hasWeapon = false;
+  ui.setWeapon(false);
   input.releaseLock();
   state = 'menu';
   ui.showMenu(message);
@@ -264,6 +273,15 @@ net.onHuntedWin = () => {
   setTimeout(() => {
     if (state === 'playing') huntedStarted = true;
   }, 5000);
+};
+
+net.onWeaponStun = (from) => {
+  if (!net.isHost) return;
+  clark.stun(WEAPON_STUN_DURATION);
+  net.sendClark(clark.netState());
+  audio.clarkStun();
+  const name = net.peersInfo.get(from)?.name || 'someone';
+  ui.addChat(null, `${name} stunned Clark with a flare!`, { system: true });
 };
 
 net.onClosed = (reason) => leaveToMenu(reason);
@@ -418,6 +436,9 @@ ui.onRespawn = () => {
   player.frozen = false;
   player.setFlashlight(false);
   ui.setFlashlight(false);
+  hasWeapon = false;
+  weaponCooldown = 0;
+  ui.setWeapon(false);
   chunks.update(player.pos.x, player.pos.z, 999);
   fear = 0;
   state = 'playing';
@@ -452,6 +473,46 @@ document.addEventListener('keydown', (e) => {
   } else if (state === 'paused' && e.code === 'Escape') {
     // browsers debounce pointer-lock re-entry; the button handles resume
   }
+  // flare pickup: press E near a flare on the ground
+  if (state === 'playing' && !ui.chatOpen && e.code === 'KeyE' && !hasWeapon) {
+    for (let i = 0; i < objects.flares.length; i++) {
+      const fl = objects.flares[i];
+      if (fl.collected) continue;
+      const d = Math.hypot(fl.x - player.pos.x, fl.z - player.pos.z);
+      if (d < WEAPON_PICKUP_DIST) {
+        objects.removeFlare(i);
+        hasWeapon = true;
+        audio.click();
+        ui.toast('found a flare');
+        ui.setWeapon(true);
+        break;
+      }
+    }
+  }
+
+  // weapon use: press Q near clark to stun him
+  if (state === 'playing' && !ui.chatOpen && e.code === 'KeyQ' && hasWeapon && weaponCooldown <= 0) {
+    const isHunted = huntedId === net.myId;
+    if (!isHunted && clark.active) {
+      const d = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
+      if (d < WEAPON_RANGE && gen.lineOfSight(player.pos.x, player.pos.z, clark.pos.x, clark.pos.z)) {
+        e.preventDefault();
+        hasWeapon = false;
+        weaponCooldown = WEAPON_USER_COOLDOWN;
+        ui.setWeapon(false);
+        audio.weaponUse();
+        if (net.isHost) {
+          clark.stun(WEAPON_STUN_DURATION);
+          net.sendClark(clark.netState());
+        } else {
+          net.sendWeaponStun();
+        }
+        audio.clarkStun();
+        ui.addChat(null, 'You stunned Clark with a flare!', { system: true });
+      }
+    }
+  }
+
   // flashlight pickup: press E near a flashlight on the ground
   if (state === 'playing' && !ui.chatOpen && e.code === 'KeyE' && !player.hasFlashlight) {
     for (let i = 0; i < objects.flashlights.length; i++) {
@@ -637,6 +698,30 @@ function frame() {
     ui.showSwapHint(nearAlly);
   } else {
     ui.showSwapHint(false);
+  }
+
+  // weapon cooldown
+  if (weaponCooldown > 0) weaponCooldown -= dt;
+
+  // weapon use hint
+  if (hasWeapon && state === 'playing') {
+    const isHunted = huntedId === net.myId;
+    const canStun = !isHunted && clark.active && Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) < WEAPON_RANGE && gen.lineOfSight(player.pos.x, player.pos.z, clark.pos.x, clark.pos.z);
+    ui.showWeaponHint(canStun);
+  } else {
+    ui.showWeaponHint(false);
+  }
+
+  // flare pickup hint
+  if (!hasWeapon && state === 'playing') {
+    let nearFlare = false;
+    for (const fl of objects.flares) {
+      if (fl.collected) continue;
+      if (Math.hypot(fl.x - player.pos.x, fl.z - player.pos.z) < WEAPON_PICKUP_DIST) {
+        nearFlare = true; break;
+      }
+    }
+    ui.showPickupHint(nearFlare);
   }
 
   // flashlight pickup hint

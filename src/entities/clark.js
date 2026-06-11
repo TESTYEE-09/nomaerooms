@@ -35,6 +35,7 @@ export class Clark {
     this.netHeadingTo = 0;
 
     this._model = null;
+    this.stunTimer = 0;
   }
 
   async load(onProgress) {
@@ -81,6 +82,7 @@ export class Clark {
     this.path = [];
     this.roamTarget = null;
     this.state = STATE.ROAM;
+    this.stunTimer = 0;
     this.active = true;
     this.group.visible = true;
   }
@@ -111,8 +113,27 @@ export class Clark {
     this.spawnAt(this.pos.x + 50, this.pos.z + 50);
   }
 
+  stun(duration) {
+    this.stunTimer = duration;
+    if (this._model) {
+      this._model.traverse((child) => {
+        if (child.isMesh) child.material.color.setHex(0xff2222);
+      });
+    }
+  }
+
   hostUpdate(dt, players, huntedPos) {
     if (!this.active || !players.length) return;
+    if (this.stunTimer > 0) {
+      this.stunTimer -= dt;
+      this.moveAmount = damp(this.moveAmount, 0, 8, dt);
+      this._animate(dt);
+      this.group.position.copy(this.pos);
+      if (this.stunTimer <= 0 && this._model) {
+        this._brightenModelMaterial(this._model);
+      }
+      return;
+    }
     this.t += dt;
 
     let nd = Infinity, np = players[0];
@@ -194,7 +215,7 @@ export class Clark {
   }
 
   netState() {
-    return { p: [this.pos.x, this.pos.z], h: this.heading, s: this.state, mv: this.moveAmount };
+    return { p: [this.pos.x, this.pos.z], h: this.heading, s: this.state, mv: this.moveAmount, st: this.stunTimer };
   }
 
   applyNet(msg, lerpTime) {
@@ -206,6 +227,17 @@ export class Clark {
     this.netHeadingTo = msg.h;
     this.state = msg.s;
     this.moveAmount = msg.mv;
+    if (msg.st !== undefined) {
+      const wasStunned = this.stunTimer > 0;
+      this.stunTimer = msg.st;
+      if (this.stunTimer > 0 && !wasStunned && this._model) {
+        this._model.traverse((child) => {
+          if (child.isMesh) child.material.color.setHex(0xff2222);
+        });
+      } else if (this.stunTimer <= 0 && wasStunned && this._model) {
+        this._brightenModelMaterial(this._model);
+      }
+    }
   }
 
   guestUpdate(dt) {
