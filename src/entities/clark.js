@@ -1,34 +1,11 @@
 // Pirate Clark — the only other thing alive down here.
-//
-// Model: "Pirate Clark" GLB (Sketchfab, CC BY 4.0). No baked animation clips,
-// so the walk is procedural (bob/sway/lean). Normalized to CLARK_HEIGHT with
-// feet at y=0.
-//
-// The HOST runs the brain: A* over the maze cell grid toward the nearest
-// player, with escalating states (ROAM → STALK → CHASE). Position streams to
-// guests at CLARK_NET_HZ; guests only interpolate. Every client detects its
-// own jumpscare locally (distance to its own camera) for zero-latency scares;
-// the host then relocates Clark and broadcasts the new spot.
+// Procedurally generated — tall, lanky figure with procedural walk.
+// No external model files needed.
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { CELL, CLARK_HEIGHT, CLARK_SCARE_DIST } from '../core/config.js';
 import { clamp, damp } from '../core/utils.js';
 import * as gen from '../world/generator.js';
-
-const MODEL_URL = './assets/models/pirate-clark.glb';
-
-const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
-
-// The pirate-clark GLB is exported with the model facing its own +X axis
-// (verified in a viewer: at rotation.y=0, Clark's chest points down +X).
-// The pathfinding code computes heading as atan2(dx, dz) — i.e. the angle
-// of the velocity vector measured from +Z toward +X. So when heading=0
-// (moving toward +Z), the model needs an additional -π/2 rotation to put
-// its face along the direction of travel instead of moonwalking sideways.
-const MODEL_FORWARD_OFFSET = -Math.PI / 2;
 
 export const STATE = { ROAM: 0, STALK: 1, CHASE: 2 };
 const SPEEDS = { [STATE.ROAM]: 1.1, [STATE.STALK]: 2.3, [STATE.CHASE]: 4.7 };
@@ -48,7 +25,7 @@ export class Clark {
     this.state = STATE.ROAM;
     this.active = false;
     this.t = 0;
-    this.moveAmount = 0;       // 0..1, drives the procedural walk
+    this.moveAmount = 0;
 
     // host brain
     this.path = [];
@@ -61,52 +38,105 @@ export class Clark {
     this.netT = 1;
     this.netHeadingTo = 0;
 
-    this._baseY = 0;
-    this._model = null;
+    this._model = this._createClarkModel();
+    this.group.add(this._model);
 
-    // a faint cold light so he reads in dark stretches
-    // (positioned just above his head — at CLARK_HEIGHT — so it always rides
-    //  with him, not floating overhead)
+    // a faint cold light
     const aura = new THREE.PointLight(0x4a3050, 2.5, 7, 1.8);
     aura.position.y = 1.9;
     this.group.add(aura);
   }
 
-  async load(onProgress) {
-    const loader = new GLTFLoader();
-    loader.setDRACOLoader(dracoLoader);
-    const gltf = await new Promise((res, rej) =>
-      loader.load(MODEL_URL, res, onProgress, rej));
-    const m = gltf.scene;
-    m.traverse((o) => {
-      if (o.isMesh) {
-        o.castShadow = true;
-        o.frustumCulled = true;
-      }
+  _createClarkModel() {
+    const group = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x2a1a2e,
+      roughness: 0.8,
+      metalness: 0.1,
     });
-    const box = new THREE.Box3().setFromObject(m);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    // Normalize by the model's VERTICAL extent so his standing height is exactly
-    // CLARK_HEIGHT. (Using max(x,y,z) let a wide arm-span or odd axis decide the
-    // scale, which left him towering floor-to-ceiling.)
-    m.scale.setScalar(CLARK_HEIGHT / size.y);
-    const box2 = new THREE.Box3().setFromObject(m);
-    m.position.y = -box2.min.y;
-    this._baseY = m.position.y;
-    this._model = m;
-    this.group.add(m);
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0x663388 });
 
-    // the GLB ships with a baked 'walk' clip (rigged in Blender);
-    // drive it from moveAmount. Procedural bob stays as a fallback.
-    if (gltf.animations?.length) {
-      this._mixer = new THREE.AnimationMixer(m);
-      this._walk = this._mixer.clipAction(gltf.animations[0]);
-      this._walk.play();
+    // Torso
+    const torso = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.25, 1.0, 4, 8),
+      mat
+    );
+    torso.position.y = 1.3;
+    torso.castShadow = true;
+    group.add(torso);
+
+    // Head
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 8, 8),
+      mat
+    );
+    head.position.y = 2.05;
+    head.scale.set(1, 1.3, 1);
+    head.castShadow = true;
+    group.add(head);
+
+    // Glowing eyes
+    const eyeGeo = new THREE.SphereGeometry(0.04, 6, 6);
+    const leftEye = new THREE.Mesh(eyeGeo, glowMat);
+    leftEye.position.set(-0.06, 2.1, 0.18);
+    group.add(leftEye);
+    const rightEye = new THREE.Mesh(eyeGeo, glowMat);
+    rightEye.position.set(0.06, 2.1, 0.18);
+    group.add(rightEye);
+
+    // Arms
+    const armGeo = new THREE.CapsuleGeometry(0.07, 1.1, 4, 8);
+    const leftArm = new THREE.Mesh(armGeo, mat);
+    leftArm.position.set(-0.35, 1.2, 0);
+    leftArm.rotation.z = 0.3;
+    leftArm.castShadow = true;
+    group.add(leftArm);
+    this._leftArm = leftArm;
+
+    const rightArm = new THREE.Mesh(armGeo, mat);
+    rightArm.position.set(0.35, 1.2, 0);
+    rightArm.rotation.z = -0.3;
+    rightArm.castShadow = true;
+    group.add(rightArm);
+    this._rightArm = rightArm;
+
+    // Legs
+    const legGeo = new THREE.CapsuleGeometry(0.09, 0.85, 4, 8);
+    const leftLeg = new THREE.Mesh(legGeo, mat);
+    leftLeg.position.set(-0.12, 0.45, 0);
+    leftLeg.castShadow = true;
+    group.add(leftLeg);
+    this._leftLeg = leftLeg;
+
+    const rightLeg = new THREE.Mesh(legGeo, mat);
+    rightLeg.position.set(0.12, 0.45, 0);
+    rightLeg.castShadow = true;
+    group.add(rightLeg);
+    this._rightLeg = rightLeg;
+
+    // Coat flaps
+    const flapGeo = new THREE.PlaneGeometry(0.3, 0.7);
+    const flapMat = new THREE.MeshStandardMaterial({
+      color: 0x1a0a1e,
+      roughness: 0.9,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    });
+    for (let i = 0; i < 4; i++) {
+      const flap = new THREE.Mesh(flapGeo, flapMat);
+      const angle = (i - 1.5) * 0.5;
+      flap.position.set(Math.sin(angle) * 0.25, 1.0, Math.cos(angle) * 0.25);
+      flap.rotation.y = angle;
+      group.add(flap);
     }
+
+    return group;
   }
 
-  // ---- shared ----
+  async load(onProgress) {
+    if (onProgress) onProgress({ loaded: 1, total: 1 });
+    return Promise.resolve();
+  }
 
   spawnAt(wx, wz) {
     this.pos.set(wx, 0, wz);
@@ -120,7 +150,6 @@ export class Clark {
     this.group.visible = true;
   }
 
-  // pick a fresh spot 40–70 m from every player (host)
   relocateAway(players) {
     for (let tries = 0; tries < 30; tries++) {
       const ref = players[(Math.random() * players.length) | 0];
@@ -140,21 +169,16 @@ export class Clark {
     this.spawnAt(this.pos.x + 50, this.pos.z + 50);
   }
 
-  // ---- host brain ----
-
-  // players: [{x,z}] — every connected player's position
   hostUpdate(dt, players) {
     if (!this.active || !players.length) return;
     this.t += dt;
 
-    // nearest player
     let nd = Infinity, np = players[0];
     for (const p of players) {
       const d = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
       if (d < nd) { nd = d; np = p; }
     }
 
-    // state machine with hysteresis
     if (this.state !== STATE.CHASE && nd < CHASE_DIST &&
         gen.lineOfSight(this.pos.x, this.pos.z, np.x, np.z)) {
       this.state = STATE.CHASE;
@@ -166,7 +190,6 @@ export class Clark {
       this.state = STATE.ROAM;
     }
 
-    // (re)path
     this.repathT -= dt;
     if (this.repathT <= 0 || !this.path.length) {
       this.repathT = this.state === STATE.CHASE ? REPATH_S * 0.5 : REPATH_S;
@@ -174,7 +197,6 @@ export class Clark {
       let goal;
       if (this.state === STATE.ROAM) {
         if (!this.roamTarget || Math.hypot(this.roamTarget.x - this.pos.x, this.roamTarget.z - this.pos.z) < CELL) {
-          // wander to a cell ~6-14 cells away, biased toward players
           const a = Math.random() * Math.PI * 2;
           const d = (6 + Math.random() * 8) * CELL;
           this.roamTarget = {
@@ -191,11 +213,9 @@ export class Clark {
       else { this.path = []; this.roamTarget = null; }
     }
 
-    // escalation: chase gets faster the longer it lasts
     let speed = SPEEDS[this.state];
     if (this.state === STATE.CHASE) speed += clamp((CHASE_DIST - nd) / CHASE_DIST, 0, 1) * 0.9;
 
-    // direct pursuit when very close & visible — corners cut, no grid snap
     let tx, tz;
     if (this.state === STATE.CHASE && nd < CELL * 1.6) {
       tx = np.x; tz = np.z;
@@ -223,8 +243,6 @@ export class Clark {
     this.group.position.copy(this.pos);
     this._animate(dt);
   }
-
-  // ---- guest mirror ----
 
   netState() {
     return { p: [this.pos.x, this.pos.z], h: this.heading, s: this.state, mv: this.moveAmount };
@@ -255,23 +273,22 @@ export class Clark {
   }
 
   _animate(dt) {
-    this.group.rotation.y = this.heading + MODEL_FORWARD_OFFSET;
+    this.group.rotation.y = this.heading - Math.PI / 2;
     if (!this._model) return;
     const k = this.moveAmount;
-    if (this._mixer) {
-      this._walk.timeScale = 0.15 + k * 1.6;
-      this._mixer.update(dt);
-      this._model.rotation.x = -0.05 * k; // forward lean while striding
-      return;
-    }
-    // procedural stride fallback: bob, sway, forward lean scaled by speed
     const f = 5.5 + k * 3.5;
-    this._model.position.y = this._baseY + Math.abs(Math.sin(this.t * f)) * 0.09 * k;
-    this._model.rotation.z = Math.sin(this.t * f) * 0.06 * k;
-    this._model.rotation.x = -0.06 * k;
+    // Legs
+    if (this._leftLeg) this._leftLeg.rotation.x = Math.sin(this.t * f) * 0.6 * k;
+    if (this._rightLeg) this._rightLeg.rotation.x = Math.sin(this.t * f + Math.PI) * 0.6 * k;
+    // Arms
+    if (this._leftArm) this._leftArm.rotation.x = Math.sin(this.t * f + Math.PI) * 0.4 * k + 0.3;
+    if (this._rightArm) this._rightArm.rotation.x = Math.sin(this.t * f) * 0.4 * k + 0.3;
+    // Body bob
+    this._model.position.y = Math.abs(Math.sin(this.t * f)) * 0.05 * k;
+    // Head lean
+    this._model.rotation.x = -0.05 * k;
   }
 
-  // fear factor for MY camera: 0 far → 1 about-to-die
   fearFor(px, pz) {
     if (!this.active) return 0;
     const d = Math.hypot(px - this.pos.x, pz - this.pos.z);
@@ -284,11 +301,6 @@ export class Clark {
     if (!this.active) return false;
     return Math.hypot(px - this.pos.x, pz - this.pos.z) < CLARK_SCARE_DIST;
   }
-
-  // ---- the eating ----
-  // beginScare snaps him in front of the camera; scareUpdate then walks him
-  // into the lens over ~1.2 s, looming and "biting" (sharp forward snaps of
-  // the whole body synced with the audio chomps in audio.jumpscare()).
 
   beginScare(camera) {
     const dir = new THREE.Vector3();
@@ -304,18 +316,15 @@ export class Clark {
     );
     this.pos.copy(this.group.position);
     this.heading = Math.atan2(-dir.x, -dir.z);
-    this.group.rotation.y = this.heading + MODEL_FORWARD_OFFSET;
+    this.group.rotation.y = this.heading - Math.PI / 2;
     this.moveAmount = 0;
-    if (this._walk) this._walk.timeScale = 0;
   }
 
   scareUpdate(dt, camera) {
     this._scareT += dt;
     const t = this._scareT;
     const k = Math.min(1, t / 1.2);
-    // close in from 1.5 m to 0.35 m — by the end his face fills the frame
     let d = 1.5 - 1.15 * (k * k);
-    // bite snaps: lurch 20 cm closer at each chomp (matches audio at .15/.5/.85)
     for (const bite of [0.15, 0.5, 0.85]) {
       const bt = t - bite;
       if (bt > 0 && bt < 0.18) d -= 0.2 * Math.sin((bt / 0.18) * Math.PI);
@@ -326,6 +335,6 @@ export class Clark {
       camera.position.z + this._scareDir.z * d
     );
     this.pos.copy(this.group.position);
-    if (this._model) this._model.rotation.x = -0.35 * k; // loom over the lens
+    if (this._model) this._model.rotation.x = -0.35 * k;
   }
 }

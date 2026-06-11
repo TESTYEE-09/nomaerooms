@@ -1,6 +1,6 @@
 // All in-game sound is synthesized with WebAudio (no asset downloads):
 // room tone, fluorescent buzz, carpet footsteps, heartbeat + chase drone tied
-// to Clark's distance, and the jumpscare sting. Menu music is theme.mp3.
+// to Clark's distance, and the jumpscare sting.
 
 import { clamp } from '../core/utils.js';
 
@@ -95,27 +95,39 @@ export class AudioEngine {
     if (this._music) this._music.volume = this.settings.musicVolume * this.settings.volume * 0.7;
   }
 
-  // ---- menu music (theme.mp3, looped) ----
+  // ---- procedural menu music ----
   playMenuMusic() {
-    if (!this._music) {
-      this._music = new Audio('./assets/music/theme.mp3');
-      this._music.loop = true;
+    if (this._music) return;
+    const ctx = this.ctx;
+    // Simple ambient drone for menu
+    this._music = ctx.createGain();
+    this._music.connect(this.master);
+    this._music.gain.value = 0;
+    this._musicSources = [];
+    const notes = [55, 41.2, 49, 36.7]; // A1, F1, G1, D1
+    for (const freq of notes) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.02;
+      osc.connect(gain).connect(this._music);
+      osc.start();
+      this._musicSources.push(osc);
     }
-    this._music.volume = this.settings.musicVolume * this.settings.volume * 0.7;
-    this._music.play().catch(() => { /* needs a user gesture; retried on click */ });
+    this._music.gain.linearRampToValueAtTime(this.settings.musicVolume * this.settings.volume * 0.7, ctx.currentTime + 2);
   }
   stopMenuMusic(fade = 1.2) {
-    const m = this._music;
-    if (!m || m.paused) return;
-    const v0 = m.volume;
-    const t0 = performance.now();
-    const tick = () => {
-      const k = (performance.now() - t0) / (fade * 1000);
-      if (k >= 1 || m.paused) { m.pause(); m.volume = v0; return; }
-      m.volume = v0 * (1 - k);
-      requestAnimationFrame(tick);
-    };
-    tick();
+    if (!this._music) return;
+    const v0 = this._music.gain.value || 0;
+    const ctx = this.ctx;
+    this._music.gain.linearRampToValueAtTime(0, ctx.currentTime + fade);
+    setTimeout(() => {
+      this._musicSources?.forEach(o => { try { o.stop(); } catch {} });
+      this._musicSources = [];
+      this._music.disconnect();
+      this._music = null;
+    }, fade * 1000);
   }
 
   enterGame() {

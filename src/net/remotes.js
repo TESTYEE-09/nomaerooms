@@ -1,47 +1,12 @@
 // Remote players: hazmat-suit avatar tinted with their colour, name label
 // sprite, and proximity chat bubbles that fade with distance and age.
+// Procedurally generated — no external model files needed.
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { EYE_HEIGHT, PLAYER_HEIGHT } from '../core/config.js';
 
-const BUBBLE_TTL = 7;       // seconds a chat bubble lingers
-const BUBBLE_RANGE = 24;    // metres at which bubbles become unreadable
-
-const MODEL_URL = './assets/models/hazmat.glb';
-
-const dracoLoader = new DRACOLoader();
-dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
-
-// Loaded once and shared: every Avatar gets a SkeletonUtils.clone() of this
-// (a plain Object3D.clone() doesn't keep skinned-mesh bones in sync).
-let _modelPromise = null;
-function loadModel() {
-  if (!_modelPromise) {
-    _modelPromise = new Promise((resolve, reject) => {
-      const loader = new GLTFLoader();
-      loader.setDRACOLoader(dracoLoader);
-      loader.load(MODEL_URL, (gltf) => {
-        const m = gltf.scene;
-        m.traverse((o) => {
-          if (o.isMesh) { o.castShadow = true; o.frustumCulled = true; }
-        });
-        // Normalize by vertical extent so every avatar stands PLAYER_HEIGHT
-        // tall with feet at y=0 (same trick as Clark's model).
-        const size = new THREE.Vector3();
-        new THREE.Box3().setFromObject(m).getSize(size);
-        const scale = PLAYER_HEIGHT / size.y;
-        m.scale.setScalar(scale);
-        const minY = new THREE.Box3().setFromObject(m).min.y;
-        m.position.y = -minY;
-        resolve(m);
-      }, undefined, reject);
-    });
-  }
-  return _modelPromise;
-}
+const BUBBLE_TTL = 7;
+const BUBBLE_RANGE = 24;
 
 function textSprite(text, { font = '600 26px system-ui, sans-serif', pad = 10, bg = null, fg = '#fff' } = {}) {
   const c = document.createElement('canvas');
@@ -71,28 +36,130 @@ function textSprite(text, { font = '600 26px system-ui, sans-serif', pad = 10, b
   return sp;
 }
 
+function createHazmatModel(color) {
+  const group = new THREE.Group();
+  const baseMat = new THREE.MeshStandardMaterial({
+    color: color,
+    roughness: 0.7,
+    metalness: 0.1,
+  });
+  const visorMat = new THREE.MeshStandardMaterial({
+    color: 0x1a3a5c,
+    roughness: 0.1,
+    metalness: 0.8,
+    transparent: true,
+    opacity: 0.6,
+  });
+  const accentMat = new THREE.MeshStandardMaterial({
+    color: 0x444444,
+    roughness: 0.5,
+    metalness: 0.3,
+  });
+
+  // Scale to PLAYER_HEIGHT
+  const scale = PLAYER_HEIGHT / 1.8;
+
+  // Torso
+  const torso = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.22 * scale, 0.6 * scale, 4, 8),
+    baseMat
+  );
+  torso.position.y = 1.0 * scale;
+  torso.castShadow = true;
+  group.add(torso);
+
+  // Head/helmet
+  const helmet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18 * scale, 8, 8),
+    baseMat
+  );
+  helmet.position.y = 1.55 * scale;
+  helmet.scale.set(1, 1.1, 1);
+  helmet.castShadow = true;
+  group.add(helmet);
+
+  // Visor
+  const visor = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22 * scale, 0.12 * scale, 0.02 * scale),
+    visorMat
+  );
+  visor.position.set(0, 1.58 * scale, 0.19 * scale);
+  group.add(visor);
+
+  // Arms
+  const armGeo = new THREE.CapsuleGeometry(0.06 * scale, 0.65 * scale, 4, 8);
+  const leftArm = new THREE.Mesh(armGeo, baseMat);
+  leftArm.position.set(-0.25 * scale, 1.1 * scale, 0);
+  leftArm.rotation.z = 0.2;
+  leftArm.castShadow = true;
+  group.add(leftArm);
+
+  const rightArm = new THREE.Mesh(armGeo, baseMat);
+  rightArm.position.set(0.25 * scale, 1.1 * scale, 0);
+  rightArm.rotation.z = -0.2;
+  rightArm.castShadow = true;
+  group.add(rightArm);
+
+  // Legs
+  const legGeo = new THREE.CapsuleGeometry(0.07 * scale, 0.7 * scale, 4, 8);
+  const leftLeg = new THREE.Mesh(legGeo, baseMat);
+  leftLeg.position.set(-0.09 * scale, 0.4 * scale, 0);
+  leftLeg.castShadow = true;
+  group.add(leftLeg);
+
+  const rightLeg = new THREE.Mesh(legGeo, baseMat);
+  rightLeg.position.set(0.09 * scale, 0.4 * scale, 0);
+  rightLeg.castShadow = true;
+  group.add(rightLeg);
+
+  // Backpack/tank
+  const tank = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18 * scale, 0.35 * scale, 0.12 * scale),
+    accentMat
+  );
+  tank.position.set(0, 1.1 * scale, -0.22 * scale);
+  tank.castShadow = true;
+  group.add(tank);
+
+  // Gloves/boots accents
+  const gloveMat = new THREE.MeshStandardMaterial({
+    color: 0x222222,
+    roughness: 0.4,
+    metalness: 0.2,
+  });
+  const gloveGeo = new THREE.SphereGeometry(0.07 * scale, 6, 6);
+  const leftGlove = new THREE.Mesh(gloveGeo, gloveMat);
+  leftGlove.position.set(-0.25 * scale, 0.5 * scale, 0);
+  group.add(leftGlove);
+  const rightGlove = new THREE.Mesh(gloveGeo, gloveMat);
+  rightGlove.position.set(0.25 * scale, 0.5 * scale, 0);
+  group.add(rightGlove);
+
+  const bootGeo = new THREE.BoxGeometry(0.1 * scale, 0.08 * scale, 0.18 * scale);
+  const leftBoot = new THREE.Mesh(bootGeo, gloveMat);
+  leftBoot.position.set(-0.09 * scale, 0.04 * scale, 0.02 * scale);
+  group.add(leftBoot);
+  const rightBoot = new THREE.Mesh(bootGeo, gloveMat);
+  rightBoot.position.set(0.09 * scale, 0.04 * scale, 0.02 * scale);
+  group.add(rightBoot);
+
+  return { group, leftArm, rightArm, leftLeg, rightLeg };
+}
+
 class Avatar {
   constructor(scene, info) {
     this.scene = scene;
     this.info = info;
     this.group = new THREE.Group();
 
-    this.head = null;   // resolved once the model loads (used for pitch tilt)
-    this.model = null;
-    loadModel().then((proto) => {
-      const m = cloneSkeleton(proto);
-      const color = new THREE.Color(info.color || '#7da2ff');
-      m.traverse((o) => {
-        if (o.isMesh && o.material) {
-          o.material = o.material.clone();
-          o.material.color = color;
-        }
-      });
-      this.model = m;
-      this._modelBaseY = m.position.y;
-      this.head = m.getObjectByName('Head_1') || null;
-      this.group.add(m);
-    }).catch((e) => console.warn('[remotes] failed to load avatar model', e));
+    const model = createHazmatModel(new THREE.Color(info.color || '#7da2ff').getHex());
+    this.model = model.group;
+    this._leftArm = model.leftArm;
+    this._rightArm = model.rightArm;
+    this._leftLeg = model.leftLeg;
+    this._rightLeg = model.rightLeg;
+    this._modelBaseY = this.model.position.y;
+    this.group.add(this.model);
 
     this.label = textSprite(info.name || '???', { fg: '#e8ffe8', bg: 'rgba(0,0,0,0.45)' });
     this.label.position.y = EYE_HEIGHT + 0.45;
@@ -101,7 +168,6 @@ class Avatar {
     this.bubble = null;
     this.bubbleT = 0;
 
-    // interpolation
     this.from = new THREE.Vector3();
     this.to = new THREE.Vector3();
     this.lerpT = 1;
@@ -148,12 +214,17 @@ class Avatar {
     while (dy < -Math.PI) dy += Math.PI * 2;
     this.yaw += dy * Math.min(1, dt * 12);
     this.group.rotation.y = this.yaw;
-    if (this.head) this.head.rotation.x = -this.pitchTo * 0.6;
 
     if (this.moving) this.walkPhase += dt * 9;
     if (this.model) {
       const bob = this.moving ? Math.abs(Math.sin(this.walkPhase)) * 0.04 : 0;
       this.model.position.y = this._modelBaseY + bob;
+      // Animate limbs
+      const f = this.walkPhase;
+      if (this._leftArm) this._leftArm.rotation.x = Math.sin(f) * 0.3 + 0.2;
+      if (this._rightArm) this._rightArm.rotation.x = Math.sin(f + Math.PI) * 0.3 + 0.2;
+      if (this._leftLeg) this._leftLeg.rotation.x = Math.sin(f) * 0.5;
+      if (this._rightLeg) this._rightLeg.rotation.x = Math.sin(f + Math.PI) * 0.5;
     }
 
     const dist = camPos.distanceTo(this.group.position);
@@ -181,15 +252,10 @@ class Avatar {
       if (o.isSprite) {
         o.material?.map?.dispose();
         o.material?.dispose();
-      } else if (o.isMesh && !this.model) {
-        // capsule/sphere placeholder geometry — owned by this instance
+      } else if (o.isMesh) {
         o.geometry?.dispose();
         o.material?.dispose();
       }
-      // model meshes share geometry/textures across avatars (SkeletonUtils
-      // clone) and only their per-instance cloned material would be safe to
-      // dispose, but it's cheap enough to just leak until the model itself
-      // is reloaded (page navigation), so skip it.
     });
   }
 }
