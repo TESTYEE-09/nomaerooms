@@ -14,8 +14,9 @@ export class UI {
     this.el = new Proxy({}, {
       get(_, prop) {
         if (!(prop in self._elCache)) {
-          const el = $(prop);
-          if (!el && prop !== 'canvas') console.warn('[UI] element not found:', prop);
+          const hyphenated = String(prop).replace(/([A-Z])/g, '-$1').toLowerCase();
+          const el = $(hyphenated);
+          if (!el && prop !== 'canvas') console.warn('[UI] element not found:', prop, '(tried:', hyphenated + ')');
           self._elCache[prop] = el;
         }
         return self._elCache[prop];
