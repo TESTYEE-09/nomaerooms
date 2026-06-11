@@ -12,6 +12,8 @@ export class AudioEngine {
     this.fear = 0;
     this._nextBeat = 0;
     this._music = null;
+    this._tinnitusActive = false;
+    this._tinnitusNodes = null;
   }
 
   // must be called from a user gesture
@@ -354,5 +356,101 @@ export class AudioEngine {
     n.connect(nf).connect(ng).connect(this.sfx);
     n.start(t0);
     n.stop(t0 + 0.3);
+  }
+
+  // ---- audio hallucinations ----
+
+  hallucinationWhisper() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime + Math.random() * 0.15;
+
+    const src = ctx.createBufferSource();
+    src.buffer = this._noiseBuffer(1.0);
+
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 1000 + Math.random() * 1200;
+    f.Q.value = 1.2 + Math.random() * 1.0;
+
+    const g = ctx.createGain();
+    const vol = 0.03 + Math.random() * 0.025;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5 + Math.random() * 0.4);
+
+    src.connect(f).connect(g).connect(this.sfx);
+    src.start(t0);
+    src.stop(t0 + 1.0);
+  }
+
+  hallucinationWhisperFar() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime + Math.random() * 0.3;
+
+    const src = ctx.createBufferSource();
+    src.buffer = this._noiseBuffer(1.2);
+
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 800 + Math.random() * 600;
+
+    const g = ctx.createGain();
+    const vol = 0.015 + Math.random() * 0.015;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(vol, t0 + 0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.8 + Math.random() * 0.6);
+
+    src.connect(f).connect(g).connect(this.sfx);
+    src.start(t0);
+    src.stop(t0 + 1.5);
+  }
+
+  startTinnitus() {
+    if (!this.ctx || this._tinnitusActive) return;
+    this._tinnitusActive = true;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = 4000 + Math.random() * 3000;
+
+    const lfo = ctx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 3 + Math.random() * 2;
+
+    const lfoG = ctx.createGain();
+    lfoG.gain.value = 500;
+
+    lfo.connect(lfoG).connect(o.frequency);
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.000001, t0);
+    g.gain.linearRampToValueAtTime(0.012, t0 + 0.5);
+
+    o.connect(g).connect(this.sfx);
+    o.start();
+    lfo.start();
+
+    this._tinnitusNodes = [o, lfo, lfoG, g];
+  }
+
+  stopTinnitus() {
+    if (!this._tinnitusActive) return;
+    this._tinnitusActive = false;
+    if (this._tinnitusNodes) {
+      const ctx = this.ctx;
+      const t1 = ctx.currentTime + 0.3;
+      for (const node of this._tinnitusNodes) {
+        if (node.stop) { try { node.stop(t1); } catch {} }
+      }
+      this._tinnitusNodes = null;
+    }
+  }
+
+  stopHallucinations() {
+    this.stopTinnitus();
   }
 }

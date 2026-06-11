@@ -94,6 +94,34 @@ const DreadShader = {
       col = mix(col, vec3(grey), fear * 0.45);
       col.r += fear * r2 * 0.55;
 
+      // --- hallucination / trip effects (fear > 0.35) ---
+      float h = clamp((fear - 0.35) * 3.1, 0.0, 1.0);
+      if (h > 0.01) {
+        float hp = t * 0.5 + fear * 6.28;
+
+        // colour shift: rotate hue towards green/magenta
+        vec3 shifted = col;
+        shifted.rg = mix(shifted.rg, shifted.gr, h * 0.18 * (sin(hp) * 0.5 + 0.5));
+        col = mix(col, shifted, h * 0.5);
+
+        // ghosting / afterimage (double vision)
+        vec2 gUv = vUv + vec2(h * 0.006 * sin(t * 1.1), h * 0.003 * cos(t * 0.9));
+        vec3 ghost = texture2D(tDiffuse, gUv).rgb;
+        col = mix(col, (col + ghost) * 0.5, h * 0.25);
+
+        // geometric trip-pattern overlay
+        float pat = sin(vUv.x * 120.0 + vUv.y * 80.0 + hp) * 0.5 + 0.5;
+        pat *= sin(vUv.y * 100.0 - vUv.x * 60.0 + t * 0.8) * 0.5 + 0.5;
+        col += pat * 0.04 * h * vec3(0.15, 0.55, 0.25);
+
+        // brightness pulsing
+        col *= 1.0 + h * 0.07 * sin(t * 2.2 + hp);
+
+        // vignette breathing
+        float v2 = smoothstep(0.9 - h * 0.15, 0.22, r2 * (vignette + h * 1.2));
+        col *= mix(0.5, 1.0, v2);
+      }
+
       gl_FragColor = vec4(col, 1.0);
     }`,
 };

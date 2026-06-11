@@ -16,6 +16,7 @@ import { Clark } from './entities/clark.js';
 import { Net } from './net/net.js';
 import { RemotePlayers } from './net/remotes.js';
 import { ClarkAI } from './ai/clark-ai.js';
+import { Hallucinations } from './effects/hallucinations.js';
 import { loadSettings, settings } from './core/settings.js';
 import { clamp, damp } from './core/utils.js';
 import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL, HUNTED_SURVIVE_TIME, HUNTED_SWAP_RANGE, HUNTED_SWAP_COOLDOWN, FLASHLIGHT_PICKUP_DIST } from './core/config.js';
@@ -40,6 +41,7 @@ lights.chunkManager = chunks;
 const remotes = new RemotePlayers(graphics.scene);
 const clark = new Clark(graphics.scene);
 const clarkAI = new ClarkAI();
+const hallucinations = new Hallucinations(audio);
 const net = new Net();
 
 let state = 'loading';      // loading | menu | playing | paused | dead | scare
@@ -168,6 +170,7 @@ function startGame(seed, code) {
 function leaveToMenu(message = '') {
   net.destroy();
   clarkAI.destroy();
+  hallucinations.destroy();
   remotes.clear();
   deadPeers.clear();
   objects.clear();
@@ -592,6 +595,9 @@ function frame() {
   // audio: buzz follows the nearest fixture
   const buzz = clamp(1 - lights.nearestDist / 9, 0, 1) * (0.25 + 0.75 * lights.nearestFlicker);
   audio.update(t, buzz, fear);
+
+  // hallucinations: audio events driven by fear
+  if (state === 'playing') hallucinations.update(dt, fear, t);
 
   // hunted mode: host ticks the timer, broadcasts state periodically
   if (net.isHost && huntedStarted && huntedId) {
