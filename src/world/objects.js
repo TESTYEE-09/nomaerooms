@@ -17,7 +17,7 @@ const SKETCHFAB_CATALOG = [
   // These are placeholder UIDs — user should replace with real ones
 ];
 
-const OBJECT_DENSITY = 0.12;
+const OBJECT_DENSITY = 0.12; // not used directly; see pickObjectType for effective density
 
 // Procedural object definitions
 function createOfficeChair() {
@@ -167,17 +167,16 @@ function pickObjectType(cx, cz, seed) {
   // Halls get larger objects; corridors get smaller ones
   const isHallCell = gen.isHall(cx, cz);
   if (isHallCell) {
-    if (r < 0.2) return null;
-    if (r < 0.35) return 'desk';
-    if (r < 0.45) return 'chair';
-    if (r < 0.58) return 'filing';
-    if (r < 0.68) return 'vending';
-    if (r < 0.76) return 'cooler';
+    if (r < 0.45) return null;
+    if (r < 0.58) return 'desk';
+    if (r < 0.65) return 'chair';
+    if (r < 0.72) return 'filing';
+    if (r < 0.78) return 'vending';
     return 'box';
   }
-  if (r < 0.88) return null; // corridors mostly empty
-  if (r < 0.92) return 'chair';
-  if (r < 0.96) return 'box';
+  if (r < 0.94) return null;
+  if (r < 0.97) return 'chair';
+  if (r < 0.99) return 'box';
   return null;
 }
 

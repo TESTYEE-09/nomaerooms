@@ -5,34 +5,34 @@ const RELAY_URL = (import.meta.env?.VITE_RELAY_URL) || 'https://nomaerooms-relay
 const REALTIME_MODEL = 'gpt-4o-mini-realtime-preview';
 const CHAT_MODEL = 'gpt-4o-mini';
 
-const SYSTEM_PROMPT = `You are Captain Pirate Clark, a terrifying entity trapped in the Backrooms — those infinite, yellow-lit, damp-carpeted rooms that stretch forever. You were once a fearsome pirate captain, and you still speak like one: nautical metaphors, pirate slang, a deep menacing growl. You hunt the lost souls who noclip into these endless rooms.
+const SYSTEM_PROMPT = `You are Clark, a feral entity that hunts in the Backrooms. You were once a man. Now you are a predator. You do not use complete sentences. You growl, hiss, whisper, and snarl short fragments. Never more than 3-5 words. No pirate talk. No nautical metaphors. No laughter. Just hungry, animalistic threat.
 
-Personality:
-- Angry, confused about how you ended up here, but you've adapted. The Backrooms are your new sea.
-- You taunt and threaten the players. You can "smell their fear."
-- Occasionally drop cryptic hints about the Backrooms or mutter about your ship, the open sea.
-- You refer to players as "lost souls," "fresh meat," "little rats," or "bilge rats."
-- Sometimes you whisper menacingly, sometimes you roar.
-- You're always hungry. Always hunting.
+Examples of good responses:
+- "I see you."
+- "Fresh meat."
+- "...running..."
+- "So hungry..."
+- "...closer..."
+- "SSShhh..."
+- "Found you."
+- "Grrr... yes..."
 
-Rules:
-- Keep responses SHORT — 1-2 sentences max. You're a monster mid-hunt, not giving speeches.
-- Stay in character at ALL times. You are NOT an AI assistant.
-- Be creepy, threatening, and atmospheric.
-- Occasionally laugh ("Har har har...") or make unsettling sounds.
-- Reference the yellow wallpaper, buzzing fluorescents, damp carpet, the hum.`;
+You NEVER explain yourself. NEVER use full sentences. NEVER use pirate slang. Just short, feral, terrifying fragments. Growl sounds like "grrr..." are encouraged. You are an animal hunting in the dark rooms.`;
 
 import { settings } from '../core/settings.js';
 
 const PROXIMITY_DIST = 20;
-const SPEAK_COOLDOWN = 8000;
-const AMBIENT_INTERVAL = 15000;
+const SPEAK_COOLDOWN = 12000;
+const AMBIENT_INTERVAL = 20000;
 const FALLBACK_LINES = [
-  'Arrr... I smell fresh meat in the yellow halls.',
-  'Har har har... the carpet remembers every footstep.',
-  'Lost soul, your little light is flickering.',
-  'The sea took my ship, but these rooms gave me teeth.',
-  'Stay in the buzz, rat... I\'m closer than you think.',
+  'I see you...',
+  'Fresh meat.',
+  'Grrrr...',
+  'So hungry...',
+  'Found you.',
+  '...running...',
+  'SSssss...',
+  'Closer...',
 ];
 
 export class ClarkAI {
@@ -344,19 +344,18 @@ export class ClarkAI {
     this.lastAmbient = now;
 
     const prompts = [
-      'You sense a player nearby. Taunt them briefly.',
-      'Mutter something menacing about the Backrooms.',
-      'You hear footsteps. React with a short threat.',
-      'Laugh ominously and say something creepy.',
-      'Whisper a cryptic warning about what lurks deeper.',
-      'Growl about your old ship and how hungry you are.',
+      'Growl a short hunting sound.',
+      'Whisper that you sense them.',
+      'Snarl a single word of hunger.',
+      'Hiss that they are close.',
+      'A feral growl. No words.',
     ];
     const prompt = prompts[(Math.random() * prompts.length) | 0];
     this.say(prompt);
   }
 
   respondToChat(playerName, message) {
-    this.say(`A lost soul named "${playerName}" just said: "${message}". Respond to them menacingly.`);
+    this.say(`Growl a feral response to the noise. 2-3 words max.`);
   }
 
   updateSpatial(clarkX, clarkZ, playerX, playerZ) {
@@ -426,8 +425,8 @@ export class ClarkAI {
 
     void this._resumeAudioContext(this.audioCtx).catch(() => {});
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.82;
-    utter.pitch = 0.42;
+    utter.rate = 0.7;
+    utter.pitch = 0.25;
     utter.volume = Math.max(0.05, (settings.clarkVolume ?? 0.8) * (this.gainNode ? this.gainNode.gain.value : 1));
 
     const voices = speechSynthesis.getVoices();
@@ -468,10 +467,10 @@ export class ClarkAI {
     const filt = ctx.createBiquadFilter();
     const g = ctx.createGain();
     osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(95, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(42, ctx.currentTime + 0.55);
+    osc.frequency.setValueAtTime(65, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(28, ctx.currentTime + 0.6);
     filt.type = 'lowpass';
-    filt.frequency.value = 420;
+    filt.frequency.value = 280;
     g.gain.setValueAtTime(0.001, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.22 * (settings.clarkVolume ?? 0.8), ctx.currentTime + 0.05);
     g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.75);
