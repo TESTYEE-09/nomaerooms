@@ -281,7 +281,7 @@ net.onWeaponStun = (from) => {
   net.sendClark(clark.netState());
   audio.clarkStun();
   const name = net.peersInfo.get(from)?.name || 'someone';
-  ui.addChat(null, `${name} stunned Clark with a flare!`, { system: true });
+  ui.addChat(null, `${name} shot Clark with a revolver!`, { system: true });
 };
 
 net.onClosed = (reason) => leaveToMenu(reason);
@@ -473,24 +473,24 @@ document.addEventListener('keydown', (e) => {
   } else if (state === 'paused' && e.code === 'Escape') {
     // browsers debounce pointer-lock re-entry; the button handles resume
   }
-  // flare pickup: press E near a flare on the ground
+  // gun pickup: press E near a gun on the ground
   if (state === 'playing' && !ui.chatOpen && e.code === 'KeyE' && !hasWeapon) {
-    for (let i = 0; i < objects.flares.length; i++) {
-      const fl = objects.flares[i];
-      if (fl.collected) continue;
-      const d = Math.hypot(fl.x - player.pos.x, fl.z - player.pos.z);
+    for (let i = 0; i < objects.guns.length; i++) {
+      const g = objects.guns[i];
+      if (g.collected) continue;
+      const d = Math.hypot(g.x - player.pos.x, g.z - player.pos.z);
       if (d < WEAPON_PICKUP_DIST) {
-        objects.removeFlare(i);
+        objects.removeGun(i);
         hasWeapon = true;
         audio.click();
-        ui.toast('found a flare');
+        ui.toast('found a revolver');
         ui.setWeapon(true);
         break;
       }
     }
   }
 
-  // weapon use: press Q near clark to stun him
+  // weapon use: press Q to shoot Clark — stuns him
   if (state === 'playing' && !ui.chatOpen && e.code === 'KeyQ' && hasWeapon && weaponCooldown <= 0) {
     const isHunted = huntedId === net.myId;
     if (!isHunted && clark.active) {
@@ -508,7 +508,7 @@ document.addEventListener('keydown', (e) => {
           net.sendWeaponStun();
         }
         audio.clarkStun();
-        ui.addChat(null, 'You stunned Clark with a flare!', { system: true });
+        ui.addChat(null, 'You shot Clark with the revolver!', { system: true });
       }
     }
   }
@@ -712,31 +712,26 @@ function frame() {
     ui.showWeaponHint(false);
   }
 
-  // flare pickup hint
+  // pickup hints: flashlight uses original pickupHint, gun uses separate
+  let nearGun = false, nearFlashlight = false;
   if (!hasWeapon && state === 'playing') {
-    let nearFlare = false;
-    for (const fl of objects.flares) {
-      if (fl.collected) continue;
-      if (Math.hypot(fl.x - player.pos.x, fl.z - player.pos.z) < WEAPON_PICKUP_DIST) {
-        nearFlare = true; break;
+    for (const g of objects.guns) {
+      if (g.collected) continue;
+      if (Math.hypot(g.x - player.pos.x, g.z - player.pos.z) < WEAPON_PICKUP_DIST) {
+        nearGun = true; break;
       }
     }
-    ui.showPickupHint(nearFlare);
   }
-
-  // flashlight pickup hint
   if (!player.hasFlashlight && state === 'playing') {
-    let nearFlashlight = false;
     for (const fl of objects.flashlights) {
       if (fl.collected) continue;
       if (Math.hypot(fl.x - player.pos.x, fl.z - player.pos.z) < FLASHLIGHT_PICKUP_DIST) {
         nearFlashlight = true; break;
       }
     }
-    ui.showPickupHint(nearFlashlight);
-  } else {
-    ui.showPickupHint(false);
   }
+  ui.showGunPickupHint(nearGun);
+  ui.showPickupHint(nearFlashlight);
 
   // sync hunted timer to UI every frame (smooth countdown)
   if (huntedId) {

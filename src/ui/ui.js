@@ -223,6 +223,12 @@ export class UI {
     el.classList.toggle('hidden', !show);
   }
 
+  showGunPickupHint(show) {
+    const el = this.el.gunPickupHint;
+    if (!el) return;
+    el.classList.toggle('hidden', !show);
+  }
+
   // ---- chat ----
   get chatOpen() { return !this.el.chatInputWrap.classList.contains('hidden'); }
   openChat() {

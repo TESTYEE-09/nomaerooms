@@ -174,21 +174,44 @@ function createFlashlightPickup() {
   return g;
 }
 
-function createFlarePickup() {
+function createGunPickup() {
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.5, metalness: 0.3 });
-  const tipMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.7 });
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.8, metalness: 0.0 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.4, metalness: 0.5 });
 
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.18, 6), bodyMat);
-  body.position.y = 0.09;
-  g.add(body);
+  // barrel
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.018, 0.14, 6), metalMat);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 0.04, 0.07);
+  g.add(barrel);
 
-  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.02, 0.03, 6), tipMat);
-  tip.position.y = 0.19;
-  g.add(tip);
+  // cylinder (revolver chamber)
+  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.035, 8), accentMat);
+  cyl.rotation.x = Math.PI / 2;
+  cyl.position.set(0, 0.04, 0);
+  g.add(cyl);
 
-  const glow = new THREE.PointLight(0xff4400, 0.35, 1.5);
-  glow.position.y = 0.2;
+  // frame / body
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.035, 0.06), metalMat);
+  frame.position.set(0, 0.04, -0.02);
+  g.add(frame);
+
+  // grip
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.055, 0.03), woodMat);
+  grip.position.set(0, 0.008, -0.035);
+  g.add(grip);
+
+  // trigger guard
+  const guard = new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.003, 4, 6), metalMat);
+  guard.rotation.y = Math.PI / 2;
+  guard.position.set(0, 0.025, 0);
+  guard.scale.set(1, 0.6, 1);
+  g.add(guard);
+
+  // glow
+  const glow = new THREE.PointLight(0x444466, 0.15, 1.0);
+  glow.position.set(0, 0.06, 0.08);
   g.add(glow);
 
   return g;
@@ -210,7 +233,7 @@ function pickObjectType(cx, cz, seed) {
     if (r < 0.89) return 'shelf';
     if (r < 0.93) return 'lamp';
     if (r < 0.96) return 'flashlight';
-    if (r < 0.98) return 'flare';
+    if (r < 0.98) return 'gun';
     return null;
   }
   if (r < 0.95) return null;
@@ -226,7 +249,7 @@ function getBuilder(type) {
     case 'lamp': return createLamp;
     case 'shelf': return createShelf;
     case 'flashlight': return createFlashlightPickup;
-    case 'flare': return createFlarePickup;
+    case 'gun': return createGunPickup;
     default: return null;
   }
 }
@@ -237,8 +260,8 @@ export class ObjectPlacer {
     this.objects = [];
     this.flashlights = []; // { mesh, x, z, collected, cellKey }
     this._collectedFlashlights = new Set(); // cellKey strings
-    this.flares = []; // { mesh, x, z, collected, cellKey }
-    this._collectedFlares = new Set(); // cellKey strings
+    this.guns = []; // { mesh, x, z, collected, cellKey }
+    this._collectedGuns = new Set(); // cellKey strings
     this._seed = 0x5eed;
   }
 
@@ -278,11 +301,11 @@ export class ObjectPlacer {
           continue;
         }
 
-        // flare handling — tracked separately like flashlights
-        if (type === 'flare') {
+        // gun handling — tracked separately like flashlights
+        if (type === 'gun') {
           const cellKey = cx + ',' + cz;
-          if (this._collectedFlares.has(cellKey)) continue;
-          const obj = createFlarePickup();
+          if (this._collectedGuns.has(cellKey)) continue;
+          const obj = createGunPickup();
           const r = hash2(cx * 7, cz * 13, seed);
           const snaps = [0, Math.PI / 4, Math.PI / 2, 3 * Math.PI / 4, Math.PI, -Math.PI / 4, -Math.PI / 2, -3 * Math.PI / 4];
           const angle = r * Math.PI * 2;
@@ -292,7 +315,7 @@ export class ObjectPlacer {
           const offZ = (hash2(cx, cz + 99, seed + 0x222) - 0.5) * (CELL * 0.5 - margin);
           obj.position.set(midX + offX, 0.02, midZ + offZ);
           this.scene.add(obj);
-          this.flares.push({ mesh: obj, x: obj.position.x, z: obj.position.z, collected: false, cellKey });
+          this.guns.push({ mesh: obj, x: obj.position.x, z: obj.position.z, collected: false, cellKey });
           continue;
         }
 
@@ -393,7 +416,7 @@ export class ObjectPlacer {
       }
     };
     removeInChunk(this.flashlights);
-    removeInChunk(this.flares);
+    removeInChunk(this.guns);
   }
 
   removeFlashlight(index) {
@@ -404,12 +427,12 @@ export class ObjectPlacer {
     this.flashlights.splice(index, 1);
   }
 
-  removeFlare(index) {
-    const fl = this.flares[index];
+  removeGun(index) {
+    const fl = this.guns[index];
     if (!fl) return;
     this.scene.remove(fl.mesh);
-    this._collectedFlares.add(fl.cellKey);
-    this.flares.splice(index, 1);
+    this._collectedGuns.add(fl.cellKey);
+    this.guns.splice(index, 1);
   }
 
   clear() {
@@ -422,10 +445,10 @@ export class ObjectPlacer {
     }
     this.flashlights = [];
     this._collectedFlashlights.clear();
-    for (const fl of this.flares) {
+    for (const fl of this.guns) {
       this.scene.remove(fl.mesh);
     }
-    this.flares = [];
-    this._collectedFlares.clear();
+    this.guns = [];
+    this._collectedGuns.clear();
   }
 }
