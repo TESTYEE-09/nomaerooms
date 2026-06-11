@@ -13,7 +13,6 @@ const DEFAULTS = {
   micVolume: 1.0,
   clarkVolume: 0.8,
   clarkAIEnabled: true,
-  pirateClark: false,
 };
 
 export const settings = { ...DEFAULTS };

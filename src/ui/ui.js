@@ -59,7 +59,6 @@ export class UI {
       e.setClarkVol.value = settings.clarkVolume; e.clarkVolVal.textContent = Math.round(settings.clarkVolume * 100) + '%';
       e.setMicVol.closest('label').style.opacity = settings.micEnabled ? '1' : '0.4';
       e.setClarkAiEnabled.checked = settings.clarkAIEnabled;
-      e.setPirateClark.checked = settings.pirateClark;
     };
     const openSettings = (from) => {
       this._settingsReturnTo = from;
@@ -79,12 +78,11 @@ export class UI {
       settings.micVolume = +e.setMicVol.value;
       settings.clarkVolume = +e.setClarkVol.value;
       settings.clarkAIEnabled = e.setClarkAiEnabled.checked;
-      settings.pirateClark = e.setPirateClark.checked;
       saveSettings();
       syncSettingsUI();
       this.onSettingsChanged?.();
     };
-    for (const el of [e.setQuality, e.setFov, e.setSens, e.setVol, e.setMusic, e.setMicEnabled, e.setMicVol, e.setClarkVol, e.setClarkAiEnabled, e.setPirateClark]) {
+    for (const el of [e.setQuality, e.setFov, e.setSens, e.setVol, e.setMusic, e.setMicEnabled, e.setMicVol, e.setClarkVol, e.setClarkAiEnabled]) {
       el.addEventListener('input', onChange);
     }
 
@@ -199,6 +197,18 @@ export class UI {
 
   showSwapHint(show) {
     this.el.swapHint.classList.toggle('hidden', !show);
+  }
+
+  setFlashlight(on) {
+    const el = this.el.flashlightIndicator;
+    if (!el) return;
+    el.classList.toggle('hidden', !on);
+  }
+
+  showPickupHint(show) {
+    const el = this.el.pickupHint;
+    if (!el) return;
+    el.classList.toggle('hidden', !show);
   }
 
   // ---- chat ----

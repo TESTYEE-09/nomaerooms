@@ -148,6 +148,32 @@ function createShelf() {
   return g;
 }
 
+function createFlashlightPickup() {
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xccaa44, roughness: 0.6, metalness: 0.4 });
+  const lensMat = new THREE.MeshBasicMaterial({ color: 0xffee88 });
+  const bulbMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.16, 6), bodyMat);
+  body.position.y = 0.08;
+  g.add(body);
+
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.04, 0.04, 6), bodyMat);
+  head.position.y = 0.18;
+  g.add(head);
+
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.04, 6), lensMat);
+  lens.position.set(0, 0.2, 0.04);
+  lens.rotation.x = -Math.PI / 2;
+  g.add(lens);
+
+  const glow = new THREE.PointLight(0xffdd88, 0.25, 1.2);
+  glow.position.y = 0.2;
+  g.add(glow);
+
+  return g;
+}
+
 const BUILDERS = [
   createOfficeChair, createDesk, createFilingCabinet,
   createLamp, createShelf,
@@ -158,11 +184,13 @@ function pickObjectType(cx, cz, seed) {
   const isHallCell = gen.isHall(cx, cz);
   if (isHallCell) {
     if (r < 0.55) return null;
-    if (r < 0.66) return 'desk';
-    if (r < 0.75) return 'chair';
-    if (r < 0.83) return 'filing';
-    if (r < 0.91) return 'shelf';
-    return 'lamp';
+    if (r < 0.65) return 'desk';
+    if (r < 0.74) return 'chair';
+    if (r < 0.82) return 'filing';
+    if (r < 0.90) return 'shelf';
+    if (r < 0.94) return 'lamp';
+    if (r < 0.98) return 'flashlight';
+    return null;
   }
   if (r < 0.95) return null;
   if (r < 0.975) return 'chair';
@@ -176,6 +204,7 @@ function getBuilder(type) {
     case 'filing': return createFilingCabinet;
     case 'lamp': return createLamp;
     case 'shelf': return createShelf;
+    case 'flashlight': return createFlashlightPickup;
     default: return null;
   }
 }
@@ -184,6 +213,8 @@ export class ObjectPlacer {
   constructor(scene) {
     this.scene = scene;
     this.objects = [];
+    this.flashlights = []; // { mesh, x, z, collected, cellKey }
+    this._collectedFlashlights = new Set(); // cellKey strings
     this._seed = 0x5eed;
   }
 
@@ -204,6 +235,24 @@ export class ObjectPlacer {
 
         const type = pickObjectType(cx, cz, seed);
         if (!type) continue;
+
+        // flashlight handling — tracked separately from furniture
+        if (type === 'flashlight') {
+          const cellKey = cx + ',' + cz;
+          if (this._collectedFlashlights.has(cellKey)) continue;
+          const obj = createFlashlightPickup();
+          const r = hash2(cx * 7, cz * 13, seed);
+          const snaps = [0, Math.PI / 4, Math.PI / 2, 3 * Math.PI / 4, Math.PI, -Math.PI / 4, -Math.PI / 2, -3 * Math.PI / 4];
+          const angle = r * Math.PI * 2;
+          obj.rotation.y = snaps.reduce((p, c) => (Math.abs(angle - c) < Math.abs(angle - p) ? c : p));
+          const margin = 0.2;
+          const offX = (hash2(cx, cz, seed + 0x111) - 0.5) * (CELL * 0.5 - margin);
+          const offZ = (hash2(cx, cz + 99, seed + 0x222) - 0.5) * (CELL * 0.5 - margin);
+          obj.position.set(midX + offX, 0.02, midZ + offZ);
+          this.scene.add(obj);
+          this.flashlights.push({ mesh: obj, x: obj.position.x, z: obj.position.z, collected: false, cellKey });
+          continue;
+        }
 
         const builder = getBuilder(type);
         if (!builder) continue;
@@ -288,6 +337,26 @@ export class ObjectPlacer {
       }
     });
     this.objects.splice(idx, 1);
+
+    // remove flashlights in this chunk
+    const cx0 = ccx * CHUNK_CELLS, cz0 = ccz * CHUNK_CELLS;
+    for (let i = this.flashlights.length - 1; i >= 0; i--) {
+      const fl = this.flashlights[i];
+      if (fl.collected) continue;
+      const [fcx, fcz] = fl.cellKey.split(',').map(Number);
+      if (fcx >= cx0 && fcx < cx0 + CHUNK_CELLS && fcz >= cz0 && fcz < cz0 + CHUNK_CELLS) {
+        this.scene.remove(fl.mesh);
+        this.flashlights.splice(i, 1);
+      }
+    }
+  }
+
+  removeFlashlight(index) {
+    const fl = this.flashlights[index];
+    if (!fl) return;
+    this.scene.remove(fl.mesh);
+    this._collectedFlashlights.add(fl.cellKey);
+    this.flashlights.splice(index, 1);
   }
 
   clear() {
@@ -295,5 +364,10 @@ export class ObjectPlacer {
       this.scene.remove(o.group);
     }
     this.objects = [];
+    for (const fl of this.flashlights) {
+      this.scene.remove(fl.mesh);
+    }
+    this.flashlights = [];
+    this._collectedFlashlights.clear();
   }
 }

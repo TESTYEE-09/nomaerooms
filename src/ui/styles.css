@@ -171,7 +171,7 @@ footer { position: absolute; bottom: 18px; font-size: 12px; color: var(--green-d
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.15); opacity: 0.7; }
 }
-#swap-hint {
+#swap-hint, #pickup-hint {
   position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
   background: rgba(18, 15, 6, 0.85);
   border: 1px solid rgba(207, 193, 118, 0.3);
@@ -179,6 +179,14 @@ footer { position: absolute; bottom: 18px; font-size: 12px; color: var(--green-d
   padding: 6px 14px;
   font-size: 13px;
   color: var(--green-bright);
+  pointer-events: none;
+}
+#pickup-hint { bottom: 90px; }
+
+#flashlight-indicator {
+  position: absolute; bottom: 54px; right: 14px;
+  font-size: 13px; color: var(--green-bright);
+  text-shadow: 0 0 8px rgba(255, 238, 136, 0.4);
   pointer-events: none;
 }
 

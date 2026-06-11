@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import {
   EYE_HEIGHT, PLAYER_RADIUS, WALK_SPEED, SPRINT_SPEED,
   STAMINA_MAX, STAMINA_DRAIN, STAMINA_REGEN, JUMP_SPEED, GRAVITY,
+  FLASHLIGHT_RANGE,
 } from '../core/config.js';
 import { clamp, damp, lerp } from '../core/utils.js';
 import { resolveCollision } from '../world/chunks.js';
@@ -30,6 +31,17 @@ export class PlayerController {
     this.moving = false;
     this.sprinting = false;
     this.frozen = false;                  // during jumpscare
+    this.hasFlashlight = false;
+    this._flashlight = new THREE.SpotLight(0xffeedd, 0, FLASHLIGHT_RANGE, Math.PI / 5, 0.4, 1.6);
+    this._flashlight.position.set(0.2, -0.15, -0.3);
+    this._flashlight.target.position.set(0, -0.15, -1);
+    this.camera.add(this._flashlight);
+    this.camera.add(this._flashlight.target);
+  }
+
+  setFlashlight(on) {
+    this.hasFlashlight = on;
+    this._flashlight.intensity = on ? 2.5 : 0;
   }
 
   teleport(x, z, yaw = Math.random() * Math.PI * 2) {

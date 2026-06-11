@@ -31,7 +31,7 @@
     </div>
 
     <footer>
-      WASD move · Shift sprint · T chat · Esc menu<br/>
+      WASD move · Shift sprint · T chat · Esc menu · <b>E</b> pickup · <b>F</b> swap (hunted)<br/>
       <span class="dim">"Pirate Clark" model © Slightlyoversizedsweater, Sketchfab — CC BY 4.0</span>
     </footer>
     <div id="version">v1.0</div>
@@ -73,10 +73,6 @@
       <label class="toggle-row">clark AI voice
         <input id="set-clark-ai-enabled" type="checkbox" />
       </label>
-      <h3 class="settings-divider">model</h3>
-      <label class="toggle-row">pirate clark model
-        <input id="set-pirate-clark" type="checkbox" />
-      </label>
       <button id="settings-back" class="primary">done</button>
     </div>
   </div>
@@ -98,6 +94,8 @@
       <div id="hunted-timer">5:00</div>
     </div>
     <div id="swap-hint" class="hidden">Press <b>F</b> to swap with an ally (nearby)</div>
+    <div id="pickup-hint" class="hidden">Press <b>E</b> to pick up flashlight</div>
+    <div id="flashlight-indicator" class="hidden">&#x1F526; FLASHLIGHT</div>
     <div id="hint">click to look around</div>
     <div id="touch-ui" class="hidden">
       <button id="touch-sprint" class="ui-block">RUN</button>

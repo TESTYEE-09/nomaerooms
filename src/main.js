@@ -18,7 +18,7 @@ import { RemotePlayers } from './net/remotes.js';
 import { ClarkAI } from './ai/clark-ai.js';
 import { loadSettings, settings } from './core/settings.js';
 import { clamp, damp } from './core/utils.js';
-import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL, HUNTED_SURVIVE_TIME, HUNTED_SWAP_RANGE, HUNTED_SWAP_COOLDOWN } from './core/config.js';
+import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL, HUNTED_SURVIVE_TIME, HUNTED_SWAP_RANGE, HUNTED_SWAP_COOLDOWN, FLASHLIGHT_PICKUP_DIST } from './core/config.js';
 
 console.log('[main] module starting');
 console.log('[main] Clark imported:', typeof Clark);
@@ -137,6 +137,8 @@ function startGame(seed, code) {
   );
   player.stamina = STAMINA_MAX;
   player.frozen = false;
+  player.setFlashlight(false);
+  ui.setFlashlight(false);
 
   // build the whole initial radius in one go (loading is already shown)
   chunks.update(player.pos.x, player.pos.z, 999);
@@ -408,6 +410,8 @@ ui.onRespawn = () => {
   const c = gen.cellCenter(cell.x, cell.z);
   player.teleport(c.x, c.z);
   player.frozen = false;
+  player.setFlashlight(false);
+  ui.setFlashlight(false);
   chunks.update(player.pos.x, player.pos.z, 999);
   fear = 0;
   state = 'playing';
@@ -416,7 +420,6 @@ ui.onRespawn = () => {
 };
 ui.onSettingsChanged = () => {
   audio.applyVolumes();
-  clark.syncModel();
   if (state !== 'menu' && state !== 'loading') {
     const q = graphics.applyQuality(settings.quality, settings.fov);
     chunks.setRadius(q.chunkRadius);
@@ -442,6 +445,21 @@ document.addEventListener('keydown', (e) => {
     ui.openChat();
   } else if (state === 'paused' && e.code === 'Escape') {
     // browsers debounce pointer-lock re-entry; the button handles resume
+  }
+  // flashlight pickup: press E near a flashlight on the ground
+  if (state === 'playing' && !ui.chatOpen && e.code === 'KeyE' && !player.hasFlashlight) {
+    for (let i = 0; i < objects.flashlights.length; i++) {
+      const fl = objects.flashlights[i];
+      if (fl.collected) continue;
+      const d = Math.hypot(fl.x - player.pos.x, fl.z - player.pos.z);
+      if (d < FLASHLIGHT_PICKUP_DIST) {
+        objects.removeFlashlight(i);
+        player.setFlashlight(true);
+        ui.toast('found a flashlight');
+        ui.setFlashlight(true);
+        break;
+      }
+    }
   }
   // hunted swap: the hunted player presses F to swap with nearest ally
   if (state === 'playing' && !ui.chatOpen && e.code === 'KeyF' && huntedId === net.myId && swapReady) {
@@ -596,6 +614,20 @@ function frame() {
     ui.showSwapHint(nearAlly);
   } else {
     ui.showSwapHint(false);
+  }
+
+  // flashlight pickup hint
+  if (!player.hasFlashlight && state === 'playing') {
+    let nearFlashlight = false;
+    for (const fl of objects.flashlights) {
+      if (fl.collected) continue;
+      if (Math.hypot(fl.x - player.pos.x, fl.z - player.pos.z) < FLASHLIGHT_PICKUP_DIST) {
+        nearFlashlight = true; break;
+      }
+    }
+    ui.showPickupHint(nearFlashlight);
+  } else {
+    ui.showPickupHint(false);
   }
 
   // sync hunted timer to UI every frame (smooth countdown)
