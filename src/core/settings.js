@@ -12,6 +12,7 @@ const DEFAULTS = {
   micEnabled: true,
   micVolume: 1.0,
   clarkVolume: 0.8,
+  clarkAIEnabled: true,
 };
 
 export const settings = { ...DEFAULTS };

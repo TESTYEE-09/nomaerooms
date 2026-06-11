@@ -48,7 +48,8 @@ let myColor = '#7da2ff';
 const deadPeers = new Set();
 
 clarkAI.onSpeech = (text) => {
-  ui.addChat('Cpt. Clark', text, { proximity: clark.active ? 1 - Math.min(1, Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) / 25) : 0, ai: true });
+  if (!settings.clarkAIEnabled) return;
+  ui.addChat('Clark', text, { proximity: clark.active ? 1 - Math.min(1, Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) / 25) : 0, ai: true });
   if (net.isHost) net.sendClarkAI(text);
 };
 
@@ -139,7 +140,7 @@ function startGame(seed, code) {
     clark.relocateAway([{ x: player.pos.x, z: player.pos.z }]);
   }
 
-  if (net.isHost) clarkAI.init();
+  if (net.isHost && settings.clarkAIEnabled) clarkAI.init();
   audio.enterGame();
   state = 'playing';
   ui.showGame(code);
@@ -192,7 +193,7 @@ net.onChat = (id, text) => {
   ui.addChat(name, text, { proximity });
   audio.chatPing();
   // if Clark is near the chatting player, he responds (host only)
-  if (net.isHost && clark.active) {
+  if (net.isHost && clark.active && settings.clarkAIEnabled) {
     const rp = remotes.map.get(id);
     if (rp) {
       const cd = Math.hypot(clark.pos.x - rp.group.position.x, clark.pos.z - rp.group.position.z);
@@ -207,7 +208,8 @@ net.onScared = (id) => {
   ui.addChat(null, `${name} was taken`, { system: true });
 };
 net.onClarkAI = (text) => {
-  ui.addChat('Cpt. Clark', text, { proximity: clark.active ? 1 - Math.min(1, Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) / 25) : 0, ai: true });
+  if (!settings.clarkAIEnabled) return;
+  ui.addChat('Clark', text, { proximity: clark.active ? 1 - Math.min(1, Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) / 25) : 0, ai: true });
 };
 net.onClosed = (reason) => leaveToMenu(reason);
 
@@ -225,7 +227,7 @@ ui.onChatSend = (text) => {
   net.sendChat(text);
   ui.addChat(ui.playerName(), text, { proximity: 1 });
   // if Clark is nearby and host, he responds
-  if (net.isHost && clark.active) {
+  if (net.isHost && clark.active && settings.clarkAIEnabled) {
     const dist = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
     if (dist < 20) clarkAI.respondToChat(ui.playerName(), text);
   }
@@ -358,7 +360,7 @@ function frame() {
     }
 
     // AI voice: update spatial audio + trigger ambient speech
-    if (net.isHost && state === 'playing') {
+    if (net.isHost && state === 'playing' && settings.clarkAIEnabled) {
       clarkAI.updateSpatial(clark.pos.x, clark.pos.z, player.pos.x, player.pos.z);
       const dist = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
       if (dist < 20) {
