@@ -198,73 +198,162 @@ function makeWallpaper() {
   };
 }
 
-// ---- Damp carpet ------------------------------------------------------------
-// One tile = 2 m x 2 m.
+// ---- Damp carpet (more realistic) -------------------------------------------
+// One tile = 2 m x 2 m. Simulates loop-pile commercial carpet with visible
+// fibre tufts, worn footpaths, water damage, and edge curling.
 
 function makeCarpet() {
   const rng = mulberry32(0xca59e7);
   const c = makeCanvas();
   const ctx = c.getContext('2d');
+
+  // base colour — deep greenish-brown (classic backrooms)
   ctx.fillStyle = '#4a4434';
   ctx.fillRect(0, 0, SIZE, SIZE);
 
-  // fibre mottle
-  for (let i = 0; i < 26000 * DENS; i++) {
+  // fibre tufts (small dashes in a slight directional grain)
+  for (let i = 0; i < 35000 * DENS; i++) {
     const v = 50 + rng() * 45;
-    ctx.fillStyle = `rgba(${v * 0.95 | 0},${v * 0.92 | 0},${v * 0.62 | 0},${0.25 + rng() * 0.3})`;
-    ctx.fillRect(rng() * SIZE, rng() * SIZE, 1 + rng() * 2, 1 + rng() * 2);
+    const bright = rng() < 0.5;
+    const r = bright ? v * 1.05 : v * 0.85;
+    const g = bright ? v : v * 0.88;
+    const b = bright ? v * 0.65 : v * 0.55;
+    ctx.fillStyle = `rgba(${r | 0},${g | 0},${b | 0},${0.2 + rng() * 0.35})`;
+    const fx = rng() * SIZE, fy = rng() * SIZE;
+    // fibre direction: slight horizontal bias
+    const flen = 1 + rng() * 3, fw = 1;
+    ctx.fillRect(fx, fy, flen, fw);
   }
-  // wide tonal patches (wear)
-  for (let i = 0; i < 22; i++) {
-    const x = rng() * SIZE, y = rng() * SIZE, r = 30 + rng() * 90;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    const dark = rng() < 0.6;
-    g.addColorStop(0, dark ? 'rgba(22,20,10,0.22)' : 'rgba(120,116,80,0.12)');
+
+  // pile direction grain (subtle horizontal streaks)
+  for (let y = 0; y < SIZE; y += 3) {
+    ctx.fillStyle = `rgba(80,74,56,${0.01 + rng() * 0.02})`;
+    ctx.fillRect(0, y, SIZE, 1);
+  }
+
+  // wide worn footpaths (lighter, flattened areas)
+  for (let i = 0; i < 18; i++) {
+    const x = rng() * SIZE, y = rng() * SIZE;
+    const rx = 40 + rng() * 120, ry = 10 + rng() * 40;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, rx);
+    g.addColorStop(0, 'rgba(130,124,100,0.12)');
+    g.addColorStop(0.5, 'rgba(100,94,80,0.08)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-  // damp stains — darker, irregular blobs
-  for (let i = 0; i < 9; i++) {
-    const x = rng() * SIZE, y = rng() * SIZE;
-    ctx.fillStyle = 'rgba(18,16,8,0.30)';
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1, 0.3 + rng() * 0.3);
     ctx.beginPath();
-    for (let a = 0; a < Math.PI * 2; a += 0.5) {
-      const r = 18 + rng() * 46;
+    ctx.arc(0, 0, rx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // dark damp stains with feathery edges
+  for (let i = 0; i < 12; i++) {
+    const x = rng() * SIZE, y = rng() * SIZE;
+    const rd = 20 + rng() * 60;
+    ctx.fillStyle = `rgba(18,16,8,${0.15 + rng() * 0.25})`;
+    ctx.beginPath();
+    for (let a = 0; a < Math.PI * 2; a += 0.3) {
+      const r = rd * (0.6 + rng() * 0.5);
       const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
       a === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     }
     ctx.closePath();
     ctx.fill();
+    // inner darker core
+    const innerR = rd * 0.3;
+    ctx.fillStyle = `rgba(14,12,6,${0.1 + rng() * 0.15})`;
+    ctx.beginPath();
+    ctx.arc(x + (rng() - 0.5) * 10, y + (rng() - 0.5) * 10, innerR, 0, Math.PI * 2);
+    ctx.fill();
   }
 
-  // height = fibre noise
+  // mould spots (tiny dark clusters near damp areas)
+  for (let i = 0; i < 30; i++) {
+    const x = rng() * SIZE, y = rng() * SIZE;
+    for (let j = 0; j < 5 + rng() * 15; j++) {
+      ctx.fillStyle = `rgba(25,30,20,${0.4 + rng() * 0.5})`;
+      ctx.fillRect(x + (rng() - 0.5) * 12, y + (rng() - 0.5) * 12, 1, 1);
+    }
+  }
+
+  // edge curling / scuff marks near walls (mimics poor installation)
+  for (let side = 0; side < 4; side++) {
+    for (let i = 0; i < 10; i++) {
+      const pos = rng() * SIZE;
+      const sx = side === 0 ? 2 + rng() * 8 : side === 1 ? SIZE - 2 - rng() * 8 : rng() * SIZE;
+      const sy = side === 2 ? 2 + rng() * 8 : side === 3 ? SIZE - 2 - rng() * 8 : rng() * SIZE;
+      ctx.fillStyle = `rgba(28,24,16,${0.1 + rng() * 0.15})`;
+      ctx.fillRect(sx - 1, sy - 1, 3, 3);
+    }
+  }
+
+  // height map: fibre noise + worn paths are lower, damp areas slightly raised
   const hc = makeCanvas();
   const hctx = hc.getContext('2d');
-  hctx.fillStyle = '#808080';
+  hctx.fillStyle = '#909090';
   hctx.fillRect(0, 0, SIZE, SIZE);
+  // fibre noise
   const hrng = mulberry32(0xfeed);
-  noiseOverlay(hctx, hrng, 20000, 0.5);
-  noiseOverlay(hctx, hrng, 20000, 0.5, false);
+  for (let i = 0; i < 40000 * DENS; i++) {
+    const v = 60 + hrng() * 70;
+    hctx.fillStyle = `rgba(${v | 0},${v | 0},${v | 0},${0.3 + hrng() * 0.5})`;
+    hctx.fillRect(hrng() * SIZE, hrng() * SIZE, 1 + hrng() * 2, 1);
+  }
+  // worn paths are flatter (darker in height map)
+  for (let i = 0; i < 15; i++) {
+    const x = hrng() * SIZE, y = hrng() * SIZE, r = 30 + hrng() * 80;
+    const g = hctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(60,60,60,0.7)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    hctx.fillStyle = g;
+    hctx.save();
+    hctx.translate(x, y);
+    hctx.scale(1, 0.3 + hrng() * 0.3);
+    hctx.beginPath();
+    hctx.arc(0, 0, r, 0, Math.PI * 2);
+    hctx.fill();
+    hctx.restore();
+  }
 
-  // roughness: damp stains are shinier
+  // roughness: damp areas are shinier, worn paths are smoother
   const rc = makeCanvas();
   const rctx = rc.getContext('2d');
-  rctx.fillStyle = '#f2f2f2';
+  rctx.fillStyle = '#e8e8e8';
   rctx.fillRect(0, 0, SIZE, SIZE);
+  // damp stain gloss
   const rrng = mulberry32(0xd44b);
-  for (let i = 0; i < 9; i++) {
-    const x = rrng() * SIZE, y = rrng() * SIZE, r = 30 + rrng() * 60;
+  for (let i = 0; i < 12; i++) {
+    const x = rrng() * SIZE, y = rrng() * SIZE, r = 20 + rrng() * 60;
     const g = rctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(95,95,95,0.85)');
+    g.addColorStop(0, 'rgba(80,80,80,0.75)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     rctx.fillStyle = g;
-    rctx.fillRect(x - r, y - r, r * 2, r * 2);
+    rctx.beginPath();
+    rctx.arc(x, y, r, 0, Math.PI * 2);
+    rctx.fill();
+  }
+  // worn paths are slightly polished
+  for (let i = 0; i < 10; i++) {
+    const x = rrng() * SIZE, y = rrng() * SIZE, r = 40 + rrng() * 70;
+    const g = rctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(60,60,60,0.4)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    rctx.fillStyle = g;
+    rctx.save();
+    rctx.translate(x, y);
+    rctx.scale(1, 0.3 + rrng() * 0.3);
+    rctx.beginPath();
+    rctx.arc(0, 0, r, 0, Math.PI * 2);
+    rctx.fill();
+    rctx.restore();
   }
 
   return {
     map: canvasTexture(c),
-    normalMap: canvasTexture(normalFromHeight(hc, 1.0), THREE.NoColorSpace),
+    normalMap: canvasTexture(normalFromHeight(hc, 1.2), THREE.NoColorSpace),
     roughnessMap: canvasTexture(rc, THREE.NoColorSpace),
   };
 }
