@@ -1,29 +1,9 @@
-// Clark AI — OpenAI Realtime API via WebRTC for voice, with chat completions fallback.
-// Clark speaks to nearby players as Captain Pirate Clark from the Backrooms.
-
-const RELAY_URL = (import.meta.env?.VITE_RELAY_URL) || 'https://nomaerooms-relay.onrender.com';
-const REALTIME_MODEL = 'gpt-4o-mini-realtime-preview';
-const CHAT_MODEL = 'gpt-4o-mini';
-
-const SYSTEM_PROMPT = `You are Clark, a feral entity that hunts in the Backrooms. You were once a man. Now you are a predator. You do not use complete sentences. You growl, hiss, whisper, and snarl short fragments. Never more than 3-5 words. No pirate talk. No nautical metaphors. No laughter. Just hungry, animalistic threat.
-
-Examples of good responses:
-- "I see you."
-- "Fresh meat."
-- "...running..."
-- "So hungry..."
-- "...closer..."
-- "SSShhh..."
-- "Found you."
-- "Grrr... yes..."
-
-You NEVER explain yourself. NEVER use full sentences. NEVER use pirate slang. Just short, feral, terrifying fragments. Growl sounds like "grrr..." are encouraged. You are an animal hunting in the dark rooms.`;
-
 import { settings } from '../core/settings.js';
 
 const PROXIMITY_DIST = 20;
-const SPEAK_COOLDOWN = 12000;
-const AMBIENT_INTERVAL = 20000;
+const SPEAK_COOLDOWN = 8000;
+const AMBIENT_INTERVAL = 12000;
+
 const FALLBACK_LINES = [
   'I see you...',
   'Fresh meat.',
@@ -35,336 +15,93 @@ const FALLBACK_LINES = [
   'Closer...',
 ];
 
+function rand(min, max) { return min + Math.random() * (max - min); }
+
+function linspace(start, end, steps) {
+  const arr = [];
+  const step = (end - start) / (steps - 1);
+  for (let i = 0; i < steps; i++) arr.push(start + step * i);
+  return arr;
+}
+
 export class ClarkAI {
   constructor() {
-    this.pc = null;
-    this.dc = null;
-    this.audioEl = null;
     this.audioCtx = null;
-    this._silentCtx = null;
     this.gainNode = null;
+    this.masterGain = null;
     this.pannerNode = null;
     this.active = false;
-    this.connected = false;
     this.lastSpoke = 0;
     this.lastAmbient = 0;
-    this.pendingText = null;
-    this._fallback = false;
-    this._fallbackReason = '';
-    this._chatHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
     this._speaking = false;
     this._onSpeech = null;
-    this._audioBuffer = [];
-    this._playbackSource = null;
+    this._currentSource = null;
   }
 
   set onSpeech(fn) { this._onSpeech = fn; }
 
   async init() {
-    try {
-      await this._initRealtime();
-      console.log('[clark-ai] Realtime API connected');
-    } catch (e) {
-      this._fallback = true;
-      this._fallbackReason = e?.message || String(e);
-      console.warn('[clark-ai] Realtime API failed, using fallback:', this._fallbackReason);
-      this._initFallbackAudio();
-    }
-  }
-
-  async _initRealtime() {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtor) throw new Error('WebAudio is not available in this browser');
-
-    const res = await fetch(`${RELAY_URL}/ai/realtime-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: REALTIME_MODEL,
-        voice: 'ash',
-        instructions: SYSTEM_PROMPT,
-        input_audio_transcription: { model: 'whisper-1' },
-      }),
-    });
-    const body = await res.text().catch(() => '');
-    if (!res.ok) throw new Error(`Session creation failed: ${res.status} ${body}`.trim());
-
-    let data;
-    try {
-      data = JSON.parse(body);
-    } catch {
-      throw new Error(`Session creation returned invalid JSON: ${body.slice(0, 200)}`);
-    }
-
-    const token = data.client_secret?.value || data.client_secret || data.ephemeral_key || data.token;
-    if (!token) throw new Error(`No ephemeral token in ${JSON.stringify(Object.keys(data))}`);
-
-    this.pc = new RTCPeerConnection();
-
-    this.pc.ontrack = (e) => {
-      const stream = e.streams[0];
-      if (!stream) return;
-      void this._setupSpatialAudio(stream);
-    };
-
-    this.pc.oniceconnectionstatechange = () => {
-      if (this.pc.iceConnectionState === 'failed' || this.pc.iceConnectionState === 'disconnected') {
-        this.connected = false;
-      }
-    };
-
-    // Silent audio track to satisfy WebRTC requirement
-    const silentCtx = new AudioCtor();
-    const oscillator = silentCtx.createOscillator();
-    const dest = silentCtx.createMediaStreamDestination();
-    oscillator.frequency.value = 0;
-    oscillator.connect(dest);
-    oscillator.start();
-    this._silentCtx = silentCtx;
-    await this._resumeAudioContext(silentCtx).catch(() => {});
-    const silentTrack = dest.stream.getAudioTracks()[0];
-    if (silentTrack) {
-      silentTrack.enabled = false;
-      this.pc.addTrack(silentTrack);
-    }
-
-    this.dc = this.pc.createDataChannel('oai-events');
-    this.dc.onopen = () => {
-      this.connected = true;
-      this._sendEvent({
-        type: 'session.update',
-        session: {
-          modalities: ['text', 'audio'],
-          instructions: SYSTEM_PROMPT,
-          voice: 'ash',
-          output_audio_format: 'pcm16',
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 200,
-          },
-        },
-      });
-    };
-    this.dc.onmessage = (e) => {
-      try {
-        this._handleRealtimeEvent(JSON.parse(e.data));
-      } catch (err) {
-        console.warn('[clark-ai] Bad realtime event:', err, e.data);
-      }
-    };
-    this.dc.onerror = () => {};
-    this.dc.onclose = () => {
-      this.connected = false;
-    };
-
-    const offer = await this.pc.createOffer();
-    await this.pc.setLocalDescription(offer);
-
-    const sdpRes = await fetch(
-      `https://api.openai.com/v1/realtime?model=${encodeURIComponent(REALTIME_MODEL)}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/sdp',
-        },
-        body: offer.sdp,
-      }
-    );
-    const sdpBody = await sdpRes.text().catch(() => '');
-    if (!sdpRes.ok) throw new Error(`SDP exchange failed: ${sdpRes.status} ${sdpBody}`.trim());
-
-    await this.pc.setRemoteDescription({ type: 'answer', sdp: sdpBody });
-    await this.unlockAudio();
-  }
-
-  async _setupSpatialAudio(stream) {
-    const AudioCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtor) return;
-
-    if (this.audioCtx && this.audioCtx.state !== 'closed') {
-      try { await this.audioCtx.close(); } catch {}
-    }
-
+    if (!AudioCtor) { console.warn('[clark-ai] WebAudio unavailable'); return; }
     this.audioCtx = new AudioCtor();
-    const source = this.audioCtx.createMediaStreamSource(stream);
-    this.gainNode = this.audioCtx.createGain();
-    this.gainNode.gain.value = settings.clarkVolume ?? 0.8;
+    this.masterGain = this.audioCtx.createGain();
+    this.masterGain.gain.value = settings.clarkVolume ?? 0.8;
     this.pannerNode = this.audioCtx.createStereoPanner();
-    source.connect(this.gainNode);
-    this.gainNode.connect(this.pannerNode);
+    this.masterGain.connect(this.pannerNode);
     this.pannerNode.connect(this.audioCtx.destination);
-
-    await this._resumeAudioContext(this.audioCtx).catch(() => {});
-    this.updateSpatial(0, 0, 0, 0);
+    this.active = true;
+    await this._resume().catch(() => {});
   }
 
-  async _resumeAudioContext(ctx) {
-    if (ctx?.state === 'suspended') await ctx.resume();
+  async _resume() {
+    if (this.audioCtx?.state === 'suspended') await this.audioCtx.resume();
   }
 
-  _initFallbackAudio() {
-    const AudioCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtor) return;
-    if (this.audioCtx && this.audioCtx.state !== 'closed') {
-      try { this.audioCtx.close(); } catch {}
-    }
-    this.audioCtx = new AudioCtor();
-    this.gainNode = this.audioCtx.createGain();
-    this.gainNode.connect(this.audioCtx.destination);
-    this.gainNode.gain.value = settings.clarkVolume ?? 0.8;
-    void this._resumeAudioContext(this.audioCtx).catch(() => {});
-  }
-
-  unlockAudio() {
-    return Promise.allSettled([
-      this._resumeAudioContext(this.audioCtx),
-      this._resumeAudioContext(this._silentCtx),
-    ].filter(Boolean));
-  }
-
-  _sendEvent(event) {
-    if (this.dc?.readyState === 'open') {
-      try {
-        this.dc.send(JSON.stringify(event));
-      } catch (e) {
-        console.warn('[clark-ai] Failed to send realtime event:', e);
-      }
-    }
-  }
-
-  _handleRealtimeEvent(event) {
-    switch (event.type) {
-      case 'response.audio_transcript.done':
-        if (event.transcript) this._onSpeech?.(event.transcript);
-        break;
-      case 'response.audio.done':
-        this._flushAudioBuffer();
-        break;
-      case 'response.audio.delta':
-        this._queueAudioDelta(event.delta);
-        break;
-      case 'response.done':
-        this._speaking = false;
-        break;
-      case 'conversation.item.created':
-        break;
-      case 'error':
-        console.warn('[clark-ai] Realtime error:', event);
-        this._speaking = false;
-        break;
-    }
-  }
-
-  _queueAudioDelta(base64PCM) {
-    this._speaking = true;
-    if (!base64PCM) return;
-    try {
-      const binary = atob(base64PCM);
-      const buf = new ArrayBuffer(binary.length);
-      const view = new Uint8Array(buf);
-      for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
-      this._audioBuffer.push(new Int16Array(buf));
-    } catch (e) {
-      console.warn('[clark-ai] Failed to decode audio delta:', e);
-    }
-  }
-
-  _flushAudioBuffer() {
-    if (!this._audioBuffer.length || !this.audioCtx) {
-      this._audioBuffer = [];
-      return;
-    }
-
-    const totalLen = this._audioBuffer.reduce((s, c) => s + c.length, 0);
-    const combined = new Int16Array(totalLen);
-    let offset = 0;
-    for (const chunk of this._audioBuffer) {
-      combined.set(chunk, offset);
-      offset += chunk.length;
-    }
-    this._audioBuffer = [];
-
-    const ctx = this.audioCtx;
-    const floatBuffer = new Float32Array(combined.length);
-    for (let i = 0; i < combined.length; i++) {
-      floatBuffer[i] = combined[i] / 32768;
-    }
-
-    const audioBuf = ctx.createBuffer(1, floatBuffer.length, 24000);
-    audioBuf.getChannelData(0).set(floatBuffer);
-
-    if (this._playbackSource) {
-      try { this._playbackSource.stop(); } catch {}
-    }
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuf;
-    source.connect(this.gainNode || ctx.destination);
-    source.start();
-    this._playbackSource = source;
-    source.onended = () => {
-      if (this._playbackSource === source) this._playbackSource = null;
-    };
-  }
+  unlockAudio() { return this._resume(); }
 
   say(text) {
+    if (!this.active || !this.audioCtx) return;
     const now = Date.now();
     if (now - this.lastSpoke < SPEAK_COOLDOWN) return;
     if (this._speaking) return;
     this.lastSpoke = now;
     this._speaking = true;
-
-    if (!this._fallback && this.connected) {
-      try {
-        this._audioBuffer = [];
-        this._sendEvent({
-          type: 'conversation.item.create',
-          item: {
-            type: 'message',
-            role: 'user',
-            content: [{ type: 'input_text', text }],
-          },
-        });
-        this._sendEvent({ type: 'response.create' });
-      } catch (e) {
-        this._fallback = true;
-        this._fallbackSay(text);
-      }
-    } else {
-      this._fallbackSay(text);
-    }
+    this._onSpeech?.(text);
+    this._playMonsterSound();
   }
 
   ambient() {
+    if (!this.active || !this.audioCtx) return;
     const now = Date.now();
     if (now - this.lastAmbient < AMBIENT_INTERVAL) return;
     if (this._speaking) return;
     this.lastAmbient = now;
 
-    const prompts = [
-      'Growl a short hunting sound.',
-      'Whisper that you sense them.',
-      'Snarl a single word of hunger.',
-      'Hiss that they are close.',
-      'A feral growl. No words.',
-    ];
-    const prompt = prompts[(Math.random() * prompts.length) | 0];
-    this.say(prompt);
+    const sounds = ['growl', 'hiss', 'snarl', 'breathe', 'click'];
+    const type = sounds[(Math.random() * sounds.length) | 0];
+    const lines = {
+      growl: 'Grrrr...',
+      hiss: 'SSssss...',
+      snarl: '...hungry...',
+      breathe: '...huff...',
+      click: '...tchhh...',
+    };
+    this._onSpeech?.(lines[type]);
+    this._speaking = true;
+    this._playMonsterSound(type);
   }
 
   respondToChat(playerName, message) {
-    this.say(`Growl a feral response to the noise. 2-3 words max.`);
+    this.say(FALLBACK_LINES[(Math.random() * FALLBACK_LINES.length) | 0]);
   }
 
   updateSpatial(clarkX, clarkZ, playerX, playerZ) {
-    if (!this.gainNode || !this.audioCtx) return;
-    if (this.audioCtx.state === 'suspended') void this._resumeAudioContext(this.audioCtx);
+    if (!this.masterGain || !this.audioCtx) return;
+    if (this.audioCtx.state === 'suspended') void this._resume();
 
     const dist = Math.hypot(clarkX - playerX, clarkZ - playerZ);
     const volume = Math.max(0, 1 - dist / PROXIMITY_DIST) * (settings.clarkVolume ?? 0.8);
-    this.gainNode.gain.setTargetAtTime(volume * 1.5, this.audioCtx.currentTime, 0.1);
+    this.masterGain.gain.setTargetAtTime(volume * 1.5, this.audioCtx.currentTime, 0.1);
 
     if (this.pannerNode) {
       const dx = clarkX - playerX;
@@ -373,126 +110,229 @@ export class ClarkAI {
     }
   }
 
-  async _fallbackSay(userPrompt) {
-    try {
-      this._chatHistory.push({ role: 'user', content: userPrompt });
-      if (this._chatHistory.length > 12) {
-        this._chatHistory = [this._chatHistory[0], ...this._chatHistory.slice(-6)];
-      }
-
-      const res = await fetch(`${RELAY_URL}/ai/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: CHAT_MODEL,
-          messages: this._chatHistory,
-          max_tokens: 80,
-          temperature: 0.9,
-        }),
-      });
-      const body = await res.text().catch(() => '');
-      let text = null;
-
-      if (res.ok) {
-        try {
-          const data = JSON.parse(body);
-          text = data.choices?.[0]?.message?.content;
-        } catch {}
-      } else {
-        console.warn('[clark-ai] chat completions failed:', res.status, body);
-      }
-
-      if (!text) {
-        text = FALLBACK_LINES[(Math.random() * FALLBACK_LINES.length) | 0];
-      }
-
-      this._chatHistory.push({ role: 'assistant', content: text });
-      this._onSpeech?.(text);
-      this._speakWithTTS(text);
-    } catch (e) {
-      console.warn('[clark-ai] fallback error:', e);
-      const text = FALLBACK_LINES[(Math.random() * FALLBACK_LINES.length) | 0];
-      this._onSpeech?.(text);
-      this._speakWithTTS(text);
-    }
-  }
-
-  _speakWithTTS(text) {
-    if (!('speechSynthesis' in window)) {
-      this._playFallbackGrowl();
-      return;
-    }
-
-    void this._resumeAudioContext(this.audioCtx).catch(() => {});
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.7;
-    utter.pitch = 0.25;
-    utter.volume = Math.max(0.05, (settings.clarkVolume ?? 0.8) * (this.gainNode ? this.gainNode.gain.value : 1));
-
-    const voices = speechSynthesis.getVoices();
-    const preferred = voices.find((v) => /male|daniel|fred|alex|google us english/i.test(`${v.name} ${v.lang}`));
-    if (preferred) utter.voice = preferred;
-
-    const done = () => { this._speaking = false; };
-    utter.onend = done;
-    utter.onerror = () => {
-      console.warn('[clark-ai] speechSynthesis error');
-      this._playFallbackGrowl();
-    };
-
-    try {
-      speechSynthesis.speak(utter);
-    } catch (e) {
-      console.warn('[clark-ai] speechSynthesis blocked:', e);
-      this._playFallbackGrowl();
-    }
-  }
-
-  _playFallbackGrowl() {
-    const AudioCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtor) {
-      this._speaking = false;
-      return;
-    }
-    if (this.audioCtx?.state === 'closed') this.audioCtx = null;
-    if (!this.audioCtx) {
-      this.audioCtx = new AudioCtor();
-      this.gainNode = this.audioCtx.createGain();
-      this.gainNode.connect(this.audioCtx.destination);
-    }
-    void this._resumeAudioContext(this.audioCtx).catch(() => {});
+  _playMonsterSound(type) {
+    if (!this.audioCtx) { this._speaking = false; return; }
+    void this._resume();
 
     const ctx = this.audioCtx;
+    const now = ctx.currentTime;
+    const vol = settings.clarkVolume ?? 0.8;
+
+    switch (type || ['growl', 'hiss', 'snarl', 'breathe', 'click'][(Math.random() * 5) | 0]) {
+      case 'hiss': this._genHiss(ctx, now, vol); break;
+      case 'snarl': this._genSnarl(ctx, now, vol); break;
+      case 'breathe': this._genBreath(ctx, now, vol); break;
+      case 'click': this._genClick(ctx, now, vol); break;
+      default: this._genGrowl(ctx, now, vol); break;
+    }
+  }
+
+  _genGrowl(ctx, now, vol) {
+    const dur = rand(0.6, 1.4);
+    const oscCount = 3;
+    const sources = [];
+    for (let i = 0; i < oscCount; i++) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+
+      osc.type = ['sawtooth', 'square', 'sawtooth'][i];
+      osc.frequency.setValueAtTime(i === 0 ? rand(45, 75) : i === 1 ? rand(80, 140) : rand(30, 50), now);
+      osc.frequency.exponentialRampToValueAtTime(i === 0 ? rand(25, 45) : i === 1 ? rand(50, 90) : rand(15, 30), now + dur);
+
+      filter.type = 'lowpass';
+      filter.frequency.value = rand(120, 350);
+      filter.Q.value = rand(1, 4);
+
+      lfo.type = 'sine';
+      lfo.frequency.value = rand(4, 12);
+      lfoGain.gain.value = rand(15, 40);
+      lfo.connect(lfoGain).connect(osc.frequency);
+
+      const g = rand(0.12, 0.28) * vol / oscCount;
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(g, now + rand(0.05, 0.15));
+      if (Math.random() > 0.5) {
+        const mid = now + rand(0.2, 0.6);
+        gain.gain.setValueAtTime(g, mid);
+        gain.gain.exponentialRampToValueAtTime(g * rand(0.6, 0.9), mid + rand(0.1, 0.3));
+      }
+      gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+      osc.connect(filter).connect(gain).connect(this.masterGain || ctx.destination);
+      osc.start(now);
+      osc.stop(now + dur + 0.05);
+      lfo.start(now);
+      lfo.stop(now + dur + 0.05);
+      sources.push(osc);
+    }
+
+    if (Math.random() > 0.4) {
+      const noise = ctx.createBufferSource();
+      const bufSize = ctx.sampleRate * dur;
+      const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < bufSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.max(0, 1 - i / bufSize * 2);
+      }
+      noise.buffer = buf;
+      const nGain = ctx.createGain();
+      const nFilter = ctx.createBiquadFilter();
+      nFilter.type = 'bandpass';
+      nFilter.frequency.value = rand(60, 180);
+      nFilter.Q.value = rand(0.5, 2);
+      nGain.gain.setValueAtTime(0.001, now);
+      nGain.gain.exponentialRampToValueAtTime(rand(0.08, 0.18) * vol, now + rand(0.05, 0.2));
+      nGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      noise.connect(nFilter).connect(nGain).connect(this.masterGain || ctx.destination);
+      noise.start(now);
+      sources.push(noise);
+    }
+
+    const endT = now + dur + 0.1;
+    sources[sources.length - 1].onended = () => { this._speaking = false; };
+  }
+
+  _genHiss(ctx, now, vol) {
+    const dur = rand(0.5, 1.2);
+    const bufSize = ctx.sampleRate * dur;
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (0.3 + 0.7 * (1 - i / bufSize));
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = buf;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = rand(2000, 4000);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(rand(0.08, 0.18) * vol, now + rand(0.05, 0.1));
+    const mid = now + dur * rand(0.3, 0.6);
+    gain.gain.setValueAtTime(rand(0.06, 0.14) * vol, mid);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.value = rand(3, 8);
+    lfoGain.gain.value = rand(500, 1500);
+    lfo.connect(lfoGain).connect(filter.frequency);
+
+    source.connect(filter).connect(gain).connect(this.masterGain || ctx.destination);
+    source.start(now);
+    lfo.start(now);
+    lfo.stop(now + dur + 0.05);
+    source.onended = () => { this._speaking = false; };
+  }
+
+  _genSnarl(ctx, now, vol) {
+    const dur = rand(0.4, 0.9);
     const osc = ctx.createOscillator();
-    const filt = ctx.createBiquadFilter();
-    const g = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(65, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(28, ctx.currentTime + 0.6);
-    filt.type = 'lowpass';
-    filt.frequency.value = 280;
-    g.gain.setValueAtTime(0.001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.22 * (settings.clarkVolume ?? 0.8), ctx.currentTime + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.75);
-    osc.connect(filt).connect(g).connect(this.gainNode);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.8);
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(rand(100, 200), now);
+    osc.frequency.exponentialRampToValueAtTime(rand(40, 80), now + dur);
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(rand(400, 800), now);
+    filter.frequency.exponentialRampToValueAtTime(rand(150, 300), now + dur);
+    filter.Q.value = rand(2, 6);
+
+    const g = rand(0.15, 0.3) * vol;
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(g, now + rand(0.02, 0.08));
+    gain.gain.setValueAtTime(g * 0.4, now + dur * 0.3);
+    gain.gain.exponentialRampToValueAtTime(g, now + dur * 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.type = 'sawtooth';
+    lfo.frequency.value = rand(15, 30);
+    lfoGain.gain.value = rand(30, 80);
+    lfo.connect(lfoGain).connect(osc.frequency);
+
+    osc.connect(filter).connect(gain).connect(this.masterGain || ctx.destination);
+    osc.start(now);
+    lfo.start(now);
+    lfo.stop(now + dur + 0.05);
     osc.onended = () => { this._speaking = false; };
   }
 
+  _genBreath(ctx, now, vol) {
+    const dur = rand(1.0, 2.0);
+    const bufSize = ctx.sampleRate * dur;
+    const buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      const t = i / ctx.sampleRate;
+      const envelope = Math.sin(Math.PI * t / dur) * 0.5 + 0.5;
+      data[i] = (Math.random() * 2 - 1) * envelope * envelope;
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = buf;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = rand(80, 200);
+    filter.Q.value = rand(1, 3);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(rand(0.06, 0.14) * vol, now + rand(0.1, 0.3));
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.value = rand(0.5, 2);
+    lfoGain.gain.value = rand(20, 50);
+    lfo.connect(lfoGain).connect(filter.frequency);
+
+    source.connect(filter).connect(gain).connect(this.masterGain || ctx.destination);
+    source.start(now);
+    lfo.start(now);
+    lfo.stop(now + dur + 0.05);
+    source.onended = () => { this._speaking = false; };
+  }
+
+  _genClick(ctx, now, vol) {
+    const count = 3 + (Math.random() * 5) | 0;
+    const gap = rand(0.06, 0.18);
+    const dur = count * gap + 0.2;
+
+    for (let i = 0; i < count; i++) {
+      const t = now + i * gap;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = rand(800, 3000);
+      const g = rand(0.04, 0.1) * vol;
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.exponentialRampToValueAtTime(g, t + 0.002);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + rand(0.02, 0.05));
+      osc.connect(gain).connect(this.masterGain || ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.06);
+    }
+
+    setTimeout(() => { this._speaking = false; }, dur * 1000 + 100);
+  }
+
   destroy() {
-    speechSynthesis?.cancel?.();
-    if (this._playbackSource) { try { this._playbackSource.stop(); } catch {} this._playbackSource = null; }
-    this.dc?.close();
-    this.pc?.close();
     if (this.audioCtx) { try { this.audioCtx.close(); } catch {} }
-    if (this._silentCtx) { try { this._silentCtx.close(); } catch {} }
-    this.audioEl?.remove();
-    this.pc = null;
-    this.dc = null;
-    this.audioEl = null;
-    this.connected = false;
+    this.audioCtx = null;
+    this.active = false;
     this._speaking = false;
-    this._audioBuffer = [];
+    this._currentSource = null;
   }
 }

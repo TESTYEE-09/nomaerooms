@@ -18,7 +18,7 @@ import { RemotePlayers } from './net/remotes.js';
 import { ClarkAI } from './ai/clark-ai.js';
 import { loadSettings, settings } from './core/settings.js';
 import { clamp, damp } from './core/utils.js';
-import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL } from './core/config.js';
+import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL, HUNTED_SURVIVE_TIME, HUNTED_SWAP_RANGE, HUNTED_SWAP_COOLDOWN } from './core/config.js';
 
 console.log('[main] module starting');
 console.log('[main] Clark imported:', typeof Clark);
@@ -46,6 +46,14 @@ let fear = 0;
 let sendAcc = 0, clarkAcc = 0, aiAcc = 0;
 let myColor = '#7da2ff';
 const deadPeers = new Set();
+
+// hunted mode state (host-authoritative)
+let huntedId = null;           // peer id of the hunted player
+let huntedTimer = 0;           // countdown seconds remaining
+let swapReady = false;         // can the hunted swap right now?
+let swapCooldownTimer = 0;     // cooldown before next swap is allowed
+let lastSwapTick = 0;          // time of last swap broadcast
+let huntedStarted = false;
 
 clarkAI.onSpeech = (text) => {
   if (!settings.clarkAIEnabled) return;
@@ -140,7 +148,12 @@ function startGame(seed, code) {
     clark.relocateAway([{ x: player.pos.x, z: player.pos.z }]);
   }
 
-  if (net.isHost && settings.clarkAIEnabled) clarkAI.init();
+  // start hunted mode on the host
+  if (net.isHost) {
+    startHuntedMode();
+  }
+
+  if (settings.clarkAIEnabled) clarkAI.init();
   audio.enterGame();
   state = 'playing';
   ui.showGame(code);
@@ -193,7 +206,7 @@ net.onChat = (id, text) => {
   ui.addChat(name, text, { proximity });
   audio.chatPing();
   // if Clark is near the chatting player, he responds (host only)
-  if (net.isHost && clark.active && settings.clarkAIEnabled) {
+  if (clark.active && settings.clarkAIEnabled) {
     const rp = remotes.map.get(id);
     if (rp) {
       const cd = Math.hypot(clark.pos.x - rp.group.position.x, clark.pos.z - rp.group.position.z);
@@ -202,7 +215,7 @@ net.onChat = (id, text) => {
   }
 };
 net.onClark = (msg) => clark.applyNet(msg, 1 / CLARK_NET_HZ);
-net.onScareRequest = () => hostRelocateClark();   // a guest got caught
+net.onScareRequest = (from) => hostRelocateClark(from);   // a guest got caught
 net.onScared = (id) => {
   const name = net.peersInfo.get(id)?.name || 'someone';
   ui.addChat(null, `${name} was taken`, { system: true });
@@ -211,14 +224,165 @@ net.onClarkAI = (text) => {
   if (!settings.clarkAIEnabled) return;
   ui.addChat('Clark', text, { proximity: clark.active ? 1 - Math.min(1, Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) / 25) : 0, ai: true });
 };
+
+// hunted mode net callbacks
+net.onHuntedState = (state) => {
+  huntedId = state.huntedId;
+  huntedTimer = state.timer;
+  swapReady = state.swapReady;
+  swapCooldownTimer = state.swapCooldown;
+  const isHunted = huntedId === net.myId;
+  ui.setHuntedState({ isHunted, timer: huntedTimer });
+};
+
+net.onSwapRequest = (fromId) => {
+  // host receives swap request from the hunted guest
+  processSwapRequest();
+};
+
+net.onSwapResult = (result) => {
+  // Host broadcasts swap with {fromX, fromZ, toX, toZ, swapId, allyId}
+  if (result.swapId === net.myId) {
+    // we are the hunted — go to the ally's old spot (toX/toZ)
+    player.teleport(result.toX, result.toZ);
+  } else if (result.allyId === net.myId) {
+    // we are the ally — go to the hunted's old spot (fromX/fromZ)
+    player.teleport(result.fromX, result.fromZ);
+  }
+  swapCooldownTimer = HUNTED_SWAP_COOLDOWN;
+  ui.addChat(null, 'Swap! You traded places.', { system: true });
+};
+
+net.onHuntedWin = () => {
+  ui.addChat(null, 'The Hunted survived! All escape.', { system: true });
+  huntedStarted = false;
+  setTimeout(() => {
+    if (state === 'playing') huntedStarted = true;
+  }, 5000);
+};
+
 net.onClosed = (reason) => leaveToMenu(reason);
 
-function hostRelocateClark(scaredGuestId = null) {
+function hostRelocateClark(caughtId = null) {
   if (!net.isHost) return;
   const ps = [{ x: player.pos.x, z: player.pos.z }, ...remotes.positions()];
   clark.relocateAway(ps);
   net.sendClark(clark.netState());
-  if (scaredGuestId !== null) net.sendScared(scaredGuestId);
+  if (caughtId !== null) {
+    net.sendScared(caughtId);
+    // if the hunted was caught, restart hunted mode
+    if (huntedId && caughtId === huntedId) {
+      ui.addChat(null, 'The Hunted was taken. A new hunt begins.', { system: true });
+      setTimeout(() => { if (net.isHost) startHuntedMode(); }, 3000);
+    }
+  }
+}
+
+// ---- hunted mode (host-authoritative) ----
+
+function startHuntedMode() {
+  if (!net.isHost) return;
+  huntedStarted = true;
+  huntedTimer = HUNTED_SURVIVE_TIME;
+  swapCooldownTimer = 0;
+  lastSwapTick = 0;
+
+  // pick a random player (including host) as hunted
+  const allIds = [net.myId, ...net.conns.keys()].filter((id) => id);
+  if (!allIds.length) { huntedId = net.myId; }
+  else { huntedId = allIds[(Math.random() * allIds.length) | 0]; }
+
+  net.sendHunted({ huntedId, timer: huntedTimer, swapReady: false, swapCooldown: 0 });
+  ui.addChat(null, 'One is the Hunted. Clark hunts the chosen. Protect them.', { system: true });
+  const n = net.peersInfo.get(huntedId)?.name || 'they';
+  ui.addChat(null, `Clark has chosen ${n}`, { system: true });
+}
+
+function broadcastHunted() {
+  if (!net.isHost) return;
+  swapReady = swapCooldownTimer <= 0;
+  net.sendHunted({ huntedId, timer: huntedTimer, swapReady, swapCooldown: swapCooldownTimer });
+}
+
+function endHuntedWin() {
+  if (!net.isHost) return;
+  net.sendHuntedWin();
+  ui.addChat(null, 'The Hunted survived! All escape.', { system: true });
+  // give a brief celebration, then restart hunted
+  setTimeout(() => {
+    if (net.isHost && state === 'playing') startHuntedMode();
+  }, 5000);
+}
+
+/** Host processes a swap — the hunted player swaps with the nearest ally in range */
+function processSwapRequest() {
+  if (!net.isHost) return;
+  if (swapCooldownTimer > 0) return;
+  if (state !== 'playing') return;
+  if (!huntedId) return;
+
+  // find hunted position
+  let huntedPos;
+  if (huntedId === net.myId) {
+    huntedPos = { x: player.pos.x, z: player.pos.z };
+  } else {
+    const rp = remotes.map.get(huntedId);
+    if (!rp) return;
+    huntedPos = { x: rp.group.position.x, z: rp.group.position.z };
+  }
+
+  // find nearest alive player to the hunted within range
+  let bestId = null, bestDist = Infinity;
+  for (const id of [net.myId, ...net.conns.keys()]) {
+    if (!id || id === huntedId) continue;
+    if (deadPeers.has(id)) continue;
+    let pos;
+    if (id === net.myId) {
+      pos = { x: player.pos.x, z: player.pos.z };
+    } else {
+      const rp = remotes.map.get(id);
+      if (!rp) continue;
+      pos = { x: rp.group.position.x, z: rp.group.position.z };
+    }
+    const d = Math.hypot(pos.x - huntedPos.x, pos.z - huntedPos.z);
+    if (d < bestDist && d <= HUNTED_SWAP_RANGE) { bestDist = d; bestId = id; }
+  }
+  if (!bestId) return;
+
+  swapCooldownTimer = HUNTED_SWAP_COOLDOWN;
+
+  // get positions of both players
+  let allyPos;
+  if (bestId === net.myId) {
+    allyPos = { x: player.pos.x, z: player.pos.z };
+  } else {
+    const rp = remotes.map.get(bestId);
+    if (!rp) return;
+    allyPos = { x: rp.group.position.x, z: rp.group.position.z };
+  }
+
+  // hunted stays hunted, swap positions
+  if (huntedId === net.myId) {
+    player.teleport(allyPos.x, allyPos.z);
+  }
+  if (bestId === net.myId) {
+    player.teleport(huntedPos.x, huntedPos.z);
+  }
+  // broadcast swap for guests
+  net.sendSwapResult({ fromX: huntedPos.x, fromZ: huntedPos.z, toX: allyPos.x, toZ: allyPos.z, swapId: huntedId, allyId: bestId });
+
+  const allyName = net.peersInfo.get(bestId)?.name || 'they';
+  ui.addChat(null, `Swap! The Hunted traded places with ${allyName}.`, { system: true });
+
+  // after swap, Clark gets pushed away slightly
+  const awayAngle = Math.atan2(clark.pos.z - allyPos.z, clark.pos.x - allyPos.x);
+  clark.teleport(
+    clark.pos.x + Math.cos(awayAngle) * 8,
+    clark.pos.z + Math.sin(awayAngle) * 8
+  );
+  net.sendClark(clark.netState());
+
+  broadcastHunted();
 }
 
 // ---------- chat / pause / death ----------
@@ -226,8 +390,8 @@ function hostRelocateClark(scaredGuestId = null) {
 ui.onChatSend = (text) => {
   net.sendChat(text);
   ui.addChat(ui.playerName(), text, { proximity: 1 });
-  // if Clark is nearby and host, he responds
-  if (net.isHost && clark.active && settings.clarkAIEnabled) {
+  // if Clark is nearby, he responds
+  if (clark.active && settings.clarkAIEnabled) {
     const dist = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
     if (dist < 20) clarkAI.respondToChat(ui.playerName(), text);
   }
@@ -281,6 +445,15 @@ document.addEventListener('keydown', (e) => {
   } else if (state === 'paused' && e.code === 'Escape') {
     // browsers debounce pointer-lock re-entry; the button handles resume
   }
+  // hunted swap: the hunted player presses F to swap with nearest ally
+  if (state === 'playing' && !ui.chatOpen && e.code === 'KeyF' && huntedId === net.myId && swapReady) {
+    e.preventDefault();
+    if (net.isHost) {
+      processSwapRequest();
+    } else {
+      net.sendSwapRequest();
+    }
+  }
 });
 
 if (IS_TOUCH) {
@@ -304,7 +477,7 @@ function triggerJumpscare() {
   ui.scareFlash();
   input.releaseLock();
   if (net.isHost) {
-    setTimeout(() => hostRelocateClark(), 1600);
+    setTimeout(() => hostRelocateClark(net.myId), 1600);
   } else {
     setTimeout(() => net.requestScare(), 1600);
   }
@@ -346,7 +519,14 @@ function frame() {
       const selfAlive = state !== 'dead' && state !== 'scare';
       const allPs = remotes.positions().filter((p) => !deadPeers.has(p.id));
       if (selfAlive) allPs.unshift({ x: player.pos.x, z: player.pos.z });
-      if (allPs.length && state !== 'scare') clark.hostUpdate(dt, allPs);
+      let huntedPos = null;
+      if (huntedId && huntedId !== net.myId) {
+        const rp = remotes.map.get(huntedId);
+        if (rp) huntedPos = { x: rp.group.position.x, z: rp.group.position.z };
+      } else if (huntedId === net.myId) {
+        huntedPos = { x: player.pos.x, z: player.pos.z };
+      }
+      if (allPs.length && state !== 'scare') clark.hostUpdate(dt, allPs, huntedPos);
       clarkAcc += dt;
       if (clarkAcc >= 1 / CLARK_NET_HZ) {
         clarkAcc = 0;
@@ -359,8 +539,8 @@ function frame() {
       triggerJumpscare();
     }
 
-    // AI voice: update spatial audio + trigger ambient speech
-    if (net.isHost && state === 'playing' && settings.clarkAIEnabled) {
+    // AI voice: update spatial audio + trigger ambient/monster sounds
+    if (state === 'playing' && settings.clarkAIEnabled) {
       clarkAI.updateSpatial(clark.pos.x, clark.pos.z, player.pos.x, player.pos.z);
       const dist = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
       if (dist < 20) {
@@ -392,6 +572,40 @@ function frame() {
   // audio: buzz follows the nearest fixture
   const buzz = clamp(1 - lights.nearestDist / 9, 0, 1) * (0.25 + 0.75 * lights.nearestFlicker);
   audio.update(t, buzz, fear);
+
+  // hunted mode: host ticks the timer, broadcasts state periodically
+  if (net.isHost && huntedStarted && huntedId) {
+    huntedTimer -= dt;
+    if (huntedTimer <= 0) {
+      huntedTimer = 0;
+      endHuntedWin();
+    }
+    swapCooldownTimer = Math.max(0, swapCooldownTimer - dt);
+    lastSwapTick += dt;
+    if (lastSwapTick >= 0.5) {
+      lastSwapTick = 0;
+      broadcastHunted();
+    }
+  }
+  // update swap hint for the hunted player (shows when near an ally)
+  if (huntedId === net.myId && swapReady) {
+    let nearAlly = false;
+    for (const [id, rp] of remotes.map) {
+      if (deadPeers.has(id)) continue;
+      const d = Math.hypot(player.pos.x - rp.group.position.x, player.pos.z - rp.group.position.z);
+      if (d <= HUNTED_SWAP_RANGE) { nearAlly = true; break; }
+    }
+    ui.showSwapHint(nearAlly);
+  } else {
+    ui.showSwapHint(false);
+  }
+
+  // sync hunted timer to UI every frame (smooth countdown)
+  if (huntedId) {
+    ui.setHuntedState({ isHunted: huntedId === net.myId, timer: huntedTimer });
+  } else {
+    ui.setHuntedState(null);
+  }
 
   // network send
   sendAcc += dt;

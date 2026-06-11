@@ -62,6 +62,10 @@ export class Net {
     this.onScared = null;
     this.onClarkAI = null;
     this.onClosed = null;
+    this.onHuntedState = null;
+    this.onSwapRequest = null;
+    this.onSwapResult = null;
+    this.onHuntedWin = null;
   }
 
   // -------- low-level ws helpers --------
@@ -185,6 +189,21 @@ export class Net {
       case 'ai':
         this.onClarkAI?.(rest.text);
         break;
+      case 'hunted':
+        // {huntedId, timer, swapReady, swapCooldown}
+        this.onHuntedState?.(rest);
+        break;
+      case 'swap':
+        // guest -> host: request swap; host -> all: {from, to, huntedPos}
+        this.onSwapRequest?.(from);
+        break;
+      case 'swapResult':
+        // host broadcasts swap result: {fromX, fromZ, toX, toZ, swapId}
+        this.onSwapResult?.(rest);
+        break;
+      case 'huntedWin':
+        this.onHuntedWin?.();
+        break;
       // 'hi' / 'join' / 'leave' / 'wel' are control messages handled by the
       // relay directly, never forwarded. 'relay' is the client→relay form,
       // also not forwarded. Anything else is ignored.
@@ -267,6 +286,27 @@ export class Net {
   sendClark(state) {
     if (!this.isHost || !this.ws) return;
     this._send({ t: 'relay', m: 'ck', ...state });
+  }
+
+  sendHunted(state) {
+    if (!this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'hunted', ...state });
+  }
+
+  sendSwapRequest() {
+    if (!this.ws) return;
+    this._send({ t: 'relay', m: 'swap' });
+  }
+
+  /** Host confirms swap was applied */
+  sendSwapResult(result) {
+    if (!this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'swapResult', ...result });
+  }
+
+  sendHuntedWin() {
+    if (!this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'huntedWin' });
   }
 
   sendScared(id) {

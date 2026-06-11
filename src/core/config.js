@@ -23,6 +23,10 @@ export const CLARK_SCARE_DIST = 1.9;
 export const NET_SEND_HZ = 12;
 export const CLARK_NET_HZ = 10;
 
+export const HUNTED_SURVIVE_TIME = 300;   // seconds (5 min)
+export const HUNTED_SWAP_RANGE = 8;       // metres to swap
+export const HUNTED_SWAP_COOLDOWN = 30;   // seconds between swaps
+
 export const QUALITY = {
   low:    { chunkRadius: 1, lights: 5,  shadowLights: 1, shadowMap: 512,  ssao: false, bloom: true,  pixelRatio: 1.0, fogDensity: 0.075 },
   medium: { chunkRadius: 2, lights: 8,  shadowLights: 2, shadowMap: 1024, ssao: true,  bloom: true,  pixelRatio: 1.25, fogDensity: 0.055 },

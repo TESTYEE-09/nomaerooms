@@ -1,8 +1,7 @@
-// Pirate Clark — the entity. Now loads a GLB model (Captain Clark from the Backrooms).
-// Falls back to procedural geometry if the model fails to load.
+// Clark — the entity. Procedural monster model, no GLB dependency.
+// Tall, gaunt, twitching, with glowing eyes and unsettling movement.
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CELL, CLARK_SCARE_DIST } from '../core/config.js';
 import { clamp, damp } from '../core/utils.js';
 import * as gen from '../world/generator.js';
@@ -12,8 +11,7 @@ const SPEEDS = { [STATE.ROAM]: 1.1, [STATE.STALK]: 2.3, [STATE.CHASE]: 4.7 };
 const STALK_DIST = 55;
 const CHASE_DIST = 18;
 const REPATH_S = 0.7;
-const TARGET_HEIGHT = 2.0;
-const ANIM_FADE_DURATION = 0.3;
+const TARGET_HEIGHT = 4.0;
 
 export class Clark {
   constructor(scene) {
@@ -39,174 +37,161 @@ export class Clark {
     this.netT = 1;
     this.netHeadingTo = 0;
 
-    this._mixer = null;
     this._model = null;
-    this._glbLoaded = false;
-    this._walkAction = null;
-    this._idleAction = null;
-    this._prevMoving = false;
-    this._animMoving = false;
-
-    // aura light
-    const aura = new THREE.PointLight(0x4a3050, 2.5, 7, 1.8);
-    aura.position.y = 1.9;
-    this.group.add(aura);
   }
 
   async load(onProgress) {
-    console.log('[clark] load() — attempting GLB');
-    try {
-      const loader = new GLTFLoader();
-      const gltf = await new Promise((resolve, reject) => {
-        loader.load(
-          `${import.meta.env.BASE_URL}models/captain_clark.glb`,
-          resolve,
-          (ev) => { if (onProgress) onProgress(ev); },
-          reject
-        );
-      });
-
-      const model = gltf.scene;
-
-      // Skinned meshes can't be measured with Box3.setFromObject — the
-      // vertices are positioned by bones on the GPU. Compute each mesh's
-      // local-to-model-root matrix and apply it to the geometry bounds.
-      model.updateMatrixWorld(true);
-      const rootInv = model.matrixWorld.clone().invert();
-      const box = new THREE.Box3();
-      model.traverse((child) => {
-        if (child.isMesh && child.geometry?.attributes?.position) {
-          child.geometry.computeBoundingBox();
-          const b = child.geometry.boundingBox.clone();
-          const localMat = rootInv.clone().multiply(child.matrixWorld);
-          b.applyMatrix4(localMat);
-          box.union(b);
-        }
-      });
-      if (box.isEmpty()) box.setFromObject(model);
-
-      const h = box.max.y - box.min.y;
-      const scale = TARGET_HEIGHT / (h || 1);
-      model.scale.setScalar(scale);
-
-      // recenter horizontally, plant feet on ground
-      model.position.set(
-        -(box.min.x + box.max.x) / 2 * scale,
-        -box.min.y * scale,
-        -(box.min.z + box.max.z) / 2 * scale,
-      );
-
-      model.traverse((child) => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.frustumCulled = false;
-          this._brightenModelMaterial(child.material);
-        }
-      });
-
-      this._model = model;
-      this.group.add(model);
-      this._glbLoaded = true;
-
-      console.log('[clark] GLB loaded, bounds', box.min.toArray().map((v) => +v.toFixed(2)), box.max.toArray().map((v) => +v.toFixed(2)));
-
-      // set up animation mixer if the model has animations
-      if (gltf.animations?.length) {
-        this._mixer = new THREE.AnimationMixer(model);
-
-        // Find animations by name, fall back to index order
-        const anims = gltf.animations;
-        const walkClip = anims.find((a) => /walk|run|move|loop/i.test(a.name)) || anims[0];
-        const idleClip = anims.find((a) => /idle|stand|breath|still|wait/i.test(a.name)) ||
-                         (anims.length > 1 ? anims[1] : walkClip);
-
-        this._walkAction = this._mixer.clipAction(walkClip);
-        this._idleAction = idleClip !== walkClip ? this._mixer.clipAction(idleClip) : this._walkAction;
-
-        // If we have distinct idle and walk, fade the idle in and start the walk at zero weight
-        if (this._idleAction !== this._walkAction) {
-          this._idleAction.play();
-          this._walkAction.play();
-          this._walkAction.setEffectiveWeight(0);
-          this._idleAction.setEffectiveWeight(1);
-        } else {
-          this._walkAction.play();
-          this._walkAction.paused = true;
-        }
-        this._prevMoving = false;
-        this._animMoving = false;
-      }
-
-      console.log('[clark] GLB loaded, scaled to', TARGET_HEIGHT, 'm');
-    } catch (e) {
-      console.warn('[clark] GLB failed, using procedural fallback:', e);
-      this._model = this._createFallbackModel();
-      this.group.add(this._model);
-      if (onProgress) onProgress({ loaded: 1, total: 1 });
-    }
+    console.log('[clark] load() — building procedural monster');
+    this._model = this._createMonsterModel();
+    this.group.add(this._model);
+    if (onProgress) onProgress({ loaded: 1, total: 1 });
   }
 
-  _brightenModelMaterial(material) {
-    const materials = Array.isArray(material) ? material : [material];
-    for (const mat of materials) {
-      if (!mat) continue;
-      // The Sketchfab pirate texture is very dark and the Backrooms post-process
-      // crushes it further. Keep the texture, but lift color/emissive so Clark is
-      // readable even when he steps out of the fluorescents.
-      mat.color = mat.color?.clone?.() || new THREE.Color(1, 1, 1);
-      mat.color.multiplyScalar(1.55);
-      mat.color.offsetHSL(0, 0.08, 0.16);
-      mat.emissive = mat.emissive?.clone?.() || new THREE.Color(0, 0, 0);
-      mat.emissive.lerp(new THREE.Color(0xff8a35), 0.32);
-      mat.emissiveIntensity = Math.max(mat.emissiveIntensity ?? 0, 0.28);
-      mat.roughness = Math.min(mat.roughness ?? 1, 0.82);
-      mat.toneMapped = true;
-      mat.needsUpdate = true;
-    }
-  }
-
-  _createFallbackModel() {
+  _createMonsterModel() {
     const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x2a1a2e, roughness: 0.8, metalness: 0.1 });
-    const glowMat = new THREE.MeshBasicMaterial({ color: 0x663388 });
 
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 1.0, 4, 8), mat);
-    torso.position.y = 1.3; torso.castShadow = true; group.add(torso);
+    const skin = new THREE.MeshStandardMaterial({
+      color: 0x1a0f1e, roughness: 0.85, metalness: 0.05,
+    });
+    const darkSkin = new THREE.MeshStandardMaterial({
+      color: 0x0d0510, roughness: 0.9, metalness: 0.0,
+    });
+    const eyeGlow = new THREE.MeshBasicMaterial({ color: 0xff2266 });
+    const innerGlow = new THREE.MeshBasicMaterial({ color: 0x661133, transparent: true, opacity: 0.6 });
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), mat);
-    head.position.y = 2.05; head.scale.set(1, 1.3, 1); head.castShadow = true; group.add(head);
+    // ---- torso - long gaunt body ----
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.35, 1.8, 8), skin);
+    torso.position.y = 2.2; torso.castShadow = true; group.add(torso);
 
-    const eyeGeo = new THREE.SphereGeometry(0.04, 6, 6);
-    const leftEye = new THREE.Mesh(eyeGeo, glowMat);
-    leftEye.position.set(-0.06, 2.1, 0.18); group.add(leftEye);
-    const rightEye = new THREE.Mesh(eyeGeo, glowMat);
-    rightEye.position.set(0.06, 2.1, 0.18); group.add(rightEye);
-
-    const armGeo = new THREE.CapsuleGeometry(0.07, 1.1, 4, 8);
-    const leftArm = new THREE.Mesh(armGeo, mat);
-    leftArm.position.set(-0.35, 1.2, 0); leftArm.rotation.z = 0.3; leftArm.castShadow = true; group.add(leftArm);
-    this._leftArm = leftArm;
-    const rightArm = new THREE.Mesh(armGeo, mat);
-    rightArm.position.set(0.35, 1.2, 0); rightArm.rotation.z = -0.3; rightArm.castShadow = true; group.add(rightArm);
-    this._rightArm = rightArm;
-
-    const legGeo = new THREE.CapsuleGeometry(0.09, 0.85, 4, 8);
-    const leftLeg = new THREE.Mesh(legGeo, mat);
-    leftLeg.position.set(-0.12, 0.45, 0); leftLeg.castShadow = true; group.add(leftLeg);
-    this._leftLeg = leftLeg;
-    const rightLeg = new THREE.Mesh(legGeo, mat);
-    rightLeg.position.set(0.12, 0.45, 0); rightLeg.castShadow = true; group.add(rightLeg);
-    this._rightLeg = rightLeg;
-
-    const flapGeo = new THREE.PlaneGeometry(0.3, 0.7);
-    const flapMat = new THREE.MeshStandardMaterial({ color: 0x1a0a1e, roughness: 0.9, side: THREE.DoubleSide });
-    for (let i = 0; i < 4; i++) {
-      const flap = new THREE.Mesh(flapGeo, flapMat);
-      const angle = (i - 1.5) * 0.5;
-      flap.position.set(Math.sin(angle) * 0.25, 1.0, Math.cos(angle) * 0.25);
-      flap.rotation.y = angle;
-      group.add(flap);
+    // ribs - exposed bone-like rings
+    const ribMat = new THREE.MeshStandardMaterial({ color: 0x2a1a18, roughness: 0.9, metalness: 0.0 });
+    for (let i = 0; i < 5; i++) {
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(0.4 + i * 0.02, 0.025, 4, 8), ribMat);
+      rib.position.y = 1.5 + i * 0.3;
+      rib.rotation.x = Math.PI / 2;
+      rib.scale.set(1, 1, 0.3 + i * 0.05);
+      group.add(rib);
     }
+
+    // spine ridges
+    for (let i = 0; i < 7; i++) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12 + (6 - i) * 0.025, 4), darkSkin);
+      spike.position.set(0, 1.4 + i * 0.3, -0.3);
+      spike.rotation.x = 0.3;
+      group.add(spike);
+    }
+
+    // ---- head - elongated skull ----
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0x0d0510, roughness: 0.6, metalness: 0.1,
+    });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 10), headMat);
+    head.position.y = 3.3;
+    head.scale.set(0.9, 1.6, 0.8);
+    head.castShadow = true;
+    group.add(head);
+
+    // jaw
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.25), headMat);
+    jaw.position.set(0, 3.0, 0.25);
+    group.add(jaw);
+
+    // teeth
+    const toothMat = new THREE.MeshStandardMaterial({ color: 0xeee8d0, roughness: 0.4 });
+    for (let i = -2; i <= 2; i++) {
+      if (i === 0) continue;
+      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.08, 4), toothMat);
+      tooth.position.set(i * 0.06, 3.05, 0.32);
+      tooth.rotation.x = 0.3;
+      group.add(tooth);
+    }
+
+    // eyes - hollow glowing pits
+    const eyeSockMat = new THREE.MeshStandardMaterial({ color: 0x050005, roughness: 0.0, metalness: 0.5 });
+    for (const side of [-1, 1]) {
+      const socket = new THREE.Mesh(new THREE.SphereGeometry(0.1, 6, 6), eyeSockMat);
+      socket.position.set(side * 0.13, 3.45, 0.28);
+      socket.scale.set(1, 0.7, 0.6);
+      group.add(socket);
+
+      const glow = new THREE.Mesh(new THREE.SphereGeometry(0.055, 6, 6), eyeGlow);
+      glow.position.set(side * 0.13, 3.45, 0.32);
+      group.add(glow);
+
+      const inner = new THREE.Mesh(new THREE.SphereGeometry(0.025, 4, 4), innerGlow);
+      inner.position.set(side * 0.13, 3.44, 0.35);
+      group.add(inner);
+    }
+
+    // ---- arms - long, spindly ----
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x15091a, roughness: 0.8, metalness: 0.05 });
+    for (const side of [-1, 1]) {
+      const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1.0, 6), armMat);
+      upperArm.position.set(side * 0.6, 2.4, 0);
+      upperArm.rotation.z = side * 0.4;
+      upperArm.castShadow = true;
+      group.add(upperArm);
+      this[side === -1 ? '_leftArmUpper' : '_rightArmUpper'] = upperArm;
+
+      const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 1.2, 6), armMat);
+      forearm.position.set(side * 0.7, 1.6, 0);
+      forearm.rotation.z = side * 0.15;
+      forearm.castShadow = true;
+      group.add(forearm);
+      this[side === -1 ? '_leftArmLower' : '_rightArmLower'] = forearm;
+
+      // clawed hand
+      const handMat = new THREE.MeshStandardMaterial({ color: 0x220a10, roughness: 0.7 });
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 5, 5), handMat);
+      hand.position.set(side * 0.85, 1.1, 0);
+      hand.scale.set(1, 0.6, 0.8);
+      group.add(hand);
+
+      // claws
+      const clawMat = new THREE.MeshStandardMaterial({ color: 0x332222, roughness: 0.5 });
+      for (let c = -1; c <= 1; c++) {
+        const claw = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.12, 4), clawMat);
+        claw.position.set(side * 0.9, 1.0, c * 0.04);
+        claw.rotation.x = 0.5;
+        group.add(claw);
+      }
+    }
+
+    // ---- legs - long, jointed backward ----
+    const legMat = new THREE.MeshStandardMaterial({ color: 0x100617, roughness: 0.85, metalness: 0.0 });
+    for (const side of [-1, 1]) {
+      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.08, 1.3, 6), legMat);
+      thigh.position.set(side * 0.18, 1.0, 0);
+      thigh.rotation.z = side * 0.05;
+      thigh.castShadow = true;
+      group.add(thigh);
+      this[side === -1 ? '_leftThigh' : '_rightThigh'] = thigh;
+
+      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.05, 1.5, 6), legMat);
+      shin.position.set(side * 0.18, 0.15, 0);
+      shin.rotation.z = side * 0.08;
+      shin.castShadow = true;
+      group.add(shin);
+      this[side === -1 ? '_leftShin' : '_rightShin'] = shin;
+
+      // foot / hoof
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.06, 0.2), darkSkin);
+      foot.position.set(side * 0.18, 0.0, 0.08);
+      group.add(foot);
+    }
+
+    // ---- aura/glow ----
+    const aura = new THREE.PointLight(0x441144, 3.0, 9, 1.8);
+    aura.position.y = 2.5;
+    group.add(aura);
+
+    this._eyeGlows = [];
+    group.traverse((child) => {
+      if (child.isMesh && child.material === eyeGlow) {
+        this._eyeGlows.push(child);
+      }
+    });
+
     return group;
   }
 
@@ -220,6 +205,13 @@ export class Clark {
     this.state = STATE.ROAM;
     this.active = true;
     this.group.visible = true;
+  }
+
+  teleport(wx, wz) {
+    this.pos.set(wx, 0, wz);
+    this.group.position.copy(this.pos);
+    this.path = [];
+    this.roamTarget = null;
   }
 
   relocateAway(players) {
@@ -241,16 +233,25 @@ export class Clark {
     this.spawnAt(this.pos.x + 50, this.pos.z + 50);
   }
 
-  hostUpdate(dt, players) {
+  hostUpdate(dt, players, huntedPos) {
     if (!this.active || !players.length) return;
     this.t += dt;
-    if (this._mixer) this._mixer.update(dt);
 
+    // If hunted mode is active, Clark always prefers the hunted player
     let nd = Infinity, np = players[0];
+    if (huntedPos) {
+      const d = Math.hypot(huntedPos.x - this.pos.x, huntedPos.z - this.pos.z);
+      nd = d;
+      np = huntedPos;
+    }
+    // Also evaluate nearest for stalk/roam transitions
+    let nearestDist = nd, nearestP = np;
     for (const p of players) {
       const d = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
-      if (d < nd) { nd = d; np = p; }
+      if (d < nearestDist) { nearestDist = d; nearestP = p; }
     }
+    // Use nearest for state transitions, but hunted for targeting
+    nd = nearestDist;
 
     if (this.state !== STATE.CHASE && nd < CHASE_DIST &&
         gen.lineOfSight(this.pos.x, this.pos.z, np.x, np.z)) {
@@ -335,7 +336,6 @@ export class Clark {
   guestUpdate(dt) {
     if (!this.active) return;
     this.t += dt;
-    if (this._mixer) this._mixer.update(dt);
     this.netT = Math.min(1, this.netT + dt / (this.netLerpTime || 0.12));
     this.group.position.lerpVectors(this.netFrom, this.netTo, this.netT);
     this.pos.copy(this.group.position);
@@ -348,51 +348,52 @@ export class Clark {
 
   _animate(dt) {
     this.group.rotation.y = this.heading - Math.PI / 2;
+    if (!this._model) return;
 
-    const moving = this.moveAmount > 0.08;
+    const k = this.moveAmount;
+    const moving = k > 0.08;
+    const speed = moving ? 5.5 + k * 3.5 : 1.2;
 
-    // GLB models use the animation mixer with crossfade
-    if (this._glbLoaded && this._mixer && this._walkAction) {
-      if (moving !== this._prevMoving) {
-        this._prevMoving = moving;
-        this._animMoving = moving;
-        if (this._idleAction !== this._walkAction) {
-          if (moving) {
-            this._walkAction.setEffectiveWeight(0);
-            this._walkAction.play();
-            this._walkAction.fadeIn(ANIM_FADE_DURATION);
-            this._idleAction.fadeOut(ANIM_FADE_DURATION);
-          } else {
-            this._idleAction.setEffectiveWeight(0);
-            this._idleAction.play();
-            this._idleAction.fadeIn(ANIM_FADE_DURATION);
-            this._walkAction.fadeOut(ANIM_FADE_DURATION);
-          }
-        } else {
-          this._walkAction.paused = !moving;
-          if (!this._walkAction.paused && this._walkAction.timeScale === 0) {
-            this._walkAction.timeScale = 0.01;
-          }
-        }
-      }
-      if (moving) {
-        this._walkAction.timeScale = damp(this._walkAction.timeScale, 0.5 + this.moveAmount * 1.5, 6, dt);
-      } else if (this._idleAction === this._walkAction) {
-        this._walkAction.timeScale = 0;
-      }
-      return;
+    // leg animation - loping gait
+    if (this._leftThigh) this._leftThigh.rotation.x = Math.sin(this.t * speed) * 0.5 * k;
+    if (this._rightThigh) this._rightThigh.rotation.x = Math.sin(this.t * speed + Math.PI) * 0.5 * k;
+    if (this._leftShin) this._leftShin.rotation.x = Math.abs(Math.sin(this.t * speed)) * 0.3 * k;
+    if (this._rightShin) this._rightShin.rotation.x = Math.abs(Math.sin(this.t * speed + Math.PI)) * 0.3 * k;
+
+    // arm animation - swinging, predatory
+    if (this._leftArmUpper) this._leftArmUpper.rotation.x = Math.sin(this.t * speed + Math.PI) * 0.6 * k + 0.3;
+    if (this._rightArmUpper) this._rightArmUpper.rotation.x = Math.sin(this.t * speed) * 0.6 * k + 0.3;
+    if (this._leftArmLower) this._leftArmLower.rotation.x = Math.sin(this.t * speed + Math.PI + 0.5) * 0.5 * k + 0.2;
+    if (this._rightArmLower) this._rightArmLower.rotation.x = Math.sin(this.t * speed + 0.5) * 0.5 * k + 0.2;
+
+    // idle twitch - subtle random movements even when still
+    const idleJitter = (1 - k) * 0.02;
+    if (!moving) {
+      if (this._leftArmUpper) this._leftArmUpper.rotation.x += Math.sin(this.t * 3.7) * 0.04;
+      if (this._rightArmUpper) this._rightArmUpper.rotation.x += Math.sin(this.t * 4.1 + 1) * 0.04;
+      if (this._leftThigh) this._leftThigh.rotation.x += Math.sin(this.t * 2.3) * 0.03;
+      if (this._rightThigh) this._rightThigh.rotation.x += Math.sin(this.t * 2.7 + 2) * 0.03;
     }
 
-    // procedural fallback animation
-    if (!this._model) return;
-    const k = this.moveAmount;
-    const f = 5.5 + k * 3.5;
-    if (this._leftLeg) this._leftLeg.rotation.x = Math.sin(this.t * f) * 0.6 * k;
-    if (this._rightLeg) this._rightLeg.rotation.x = Math.sin(this.t * f + Math.PI) * 0.6 * k;
-    if (this._leftArm) this._leftArm.rotation.x = Math.sin(this.t * f + Math.PI) * 0.4 * k + 0.3;
-    if (this._rightArm) this._rightArm.rotation.x = Math.sin(this.t * f) * 0.4 * k + 0.3;
-    this._model.position.y = Math.abs(Math.sin(this.t * f)) * 0.05 * k;
-    this._model.rotation.x = -0.05 * k;
+    // body sway / bob
+    this._model.position.y = moving ? Math.abs(Math.sin(this.t * speed)) * 0.12 * k : Math.sin(this.t * 0.5) * 0.02;
+
+    // lean forward when moving
+    this._model.rotation.x = -0.1 * k;
+
+    // head bob / tilt
+    const head = this._model.children.find((c) => c.position.y > 3 && c.position.y < 3.5 && c.type === 'Mesh');
+    if (head) {
+      head.rotation.z = Math.sin(this.t * (moving ? speed * 0.5 : 1.8)) * 0.05;
+      head.rotation.x = Math.sin(this.t * (moving ? speed * 0.3 : 2.2)) * 0.03 - (moving ? 0.05 : 0);
+    }
+
+    // eye glow pulse
+    for (const g of (this._eyeGlows || [])) {
+      const pulse = 0.7 + 0.3 * Math.sin(this.t * 3 + g.position.x);
+      g.scale.setScalar(pulse);
+      g.material.opacity = g.material.opacity || 1;
+    }
   }
 
   fearFor(px, pz) {
@@ -428,7 +429,7 @@ export class Clark {
 
   scareUpdate(dt, camera) {
     this._scareT += dt;
-    if (this._mixer) this._mixer.update(dt);
+    this.t += dt;
     const t = this._scareT;
     const k = Math.min(1, t / 1.2);
     let d = 1.5 - 1.15 * (k * k);
@@ -442,6 +443,9 @@ export class Clark {
       camera.position.z + this._scareDir.z * d
     );
     this.pos.copy(this.group.position);
-    if (this._model) this._model.rotation.x = -0.35 * k;
+    if (this._model) {
+      this._model.rotation.x = -0.35 * k;
+      this._animate(dt);
+    }
   }
 }

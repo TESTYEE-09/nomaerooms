@@ -175,6 +175,30 @@ export class UI {
     this.el.hint.style.opacity = text ? 1 : 0;
   }
 
+  // ---- hunted mode ----
+  setHuntedState(state) {
+    const hud = this.el.huntedHud;
+    if (!hud) return;
+    if (!state) { hud.classList.add('hidden'); return; }
+    hud.classList.remove('hidden');
+    if (state.isHunted) {
+      this.el.huntedIcon.textContent = '\u{1F3F9}';
+      this.el.huntedLabel.textContent = 'YOU ARE HUNTED';
+      this.el.huntedLabel.style.color = '#e04040';
+    } else {
+      this.el.huntedIcon.textContent = '\u{1F6E1}';
+      this.el.huntedLabel.textContent = 'PROTECT THE HUNTED';
+      this.el.huntedLabel.style.color = '#40c0e0';
+    }
+    const m = Math.floor(state.timer / 60);
+    const s = Math.floor(state.timer % 60);
+    this.el.huntedTimer.textContent = `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  showSwapHint(show) {
+    this.el.swapHint.classList.toggle('hidden', !show);
+  }
+
   // ---- chat ----
   get chatOpen() { return !this.el.chatInputWrap.classList.contains('hidden'); }
   openChat() {
