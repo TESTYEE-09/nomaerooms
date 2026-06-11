@@ -63,17 +63,33 @@ export class Clark {
 
       const model = gltf.scene;
 
-      // measure and scale to TARGET_HEIGHT
-      const box = new THREE.Box3().setFromObject(model);
+      // Skinned meshes can't be measured with Box3.setFromObject — the
+      // vertices are positioned by bones on the GPU. Compute each mesh's
+      // local-to-model-root matrix and apply it to the geometry bounds.
+      model.updateMatrixWorld(true);
+      const rootInv = model.matrixWorld.clone().invert();
+      const box = new THREE.Box3();
+      model.traverse((child) => {
+        if (child.isMesh && child.geometry?.attributes?.position) {
+          child.geometry.computeBoundingBox();
+          const b = child.geometry.boundingBox.clone();
+          const localMat = rootInv.clone().multiply(child.matrixWorld);
+          b.applyMatrix4(localMat);
+          box.union(b);
+        }
+      });
+      if (box.isEmpty()) box.setFromObject(model);
+
       const h = box.max.y - box.min.y;
       const scale = TARGET_HEIGHT / (h || 1);
       model.scale.setScalar(scale);
 
       // recenter horizontally, plant feet on ground
-      const scaledBox = new THREE.Box3().setFromObject(model);
-      const cx = (scaledBox.min.x + scaledBox.max.x) / 2;
-      const cz = (scaledBox.min.z + scaledBox.max.z) / 2;
-      model.position.set(-cx, -scaledBox.min.y, -cz);
+      model.position.set(
+        -(box.min.x + box.max.x) / 2 * scale,
+        -box.min.y * scale,
+        -(box.min.z + box.max.z) / 2 * scale,
+      );
 
       model.traverse((child) => {
         if (child.isMesh) {

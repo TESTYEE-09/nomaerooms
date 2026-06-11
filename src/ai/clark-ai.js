@@ -168,10 +168,11 @@ export class ClarkAI {
 
   say(text) {
     const now = Date.now();
-    if (now - this.lastSpoke < SPEAK_COOLDOWN) return;
-    if (this._speaking) return;
+    if (now - this.lastSpoke < SPEAK_COOLDOWN) { console.log('[clark-ai] say() blocked by cooldown'); return; }
+    if (this._speaking) { console.log('[clark-ai] say() blocked — already speaking'); return; }
     this.lastSpoke = now;
     this._speaking = true;
+    console.log('[clark-ai] say()', this._fallback ? '(fallback)' : '(realtime)', text.slice(0, 60));
 
     if (!this._fallback && this.connected) {
       this._sendEvent({
@@ -241,10 +242,14 @@ export class ClarkAI {
         }),
       });
 
-      if (!res.ok) { this._speaking = false; return; }
+      if (!res.ok) {
+        console.warn('[clark-ai] chat completions failed:', res.status, await res.text().catch(() => ''));
+        this._speaking = false;
+        return;
+      }
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content;
-      if (!text) { this._speaking = false; return; }
+      if (!text) { console.warn('[clark-ai] empty response from chat'); this._speaking = false; return; }
 
       this._chatHistory.push({ role: 'assistant', content: text });
       this._onSpeech?.(text);
