@@ -7,8 +7,8 @@
   <title>NomaeROOMS</title>
   <meta name="description" content="A multiplayer Backrooms horror game in your browser. Get lost with friends. Watch out for Pirate Clark." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%231a2012'/><text y='.9em' font-size='80' x='10'>👁</text></svg>" />
-  <script type="module" crossorigin src="./assets/index-Db9MB4j3.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-CKEvpnWm.css">
+  <script type="module" crossorigin src="./assets/index-Dmlo61Gf.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DhYY_RQk.css">
 </head>
 <body>
   <canvas id="canvas"></canvas>
@@ -89,6 +89,12 @@
       <input id="chat-input" maxlength="200" placeholder="say something… (Enter to send, Esc to close)" autocomplete="off" />
     </div>
     <div id="proximity-indicator" class="hidden"></div>
+    <div id="hunted-hud" class="hidden">
+      <div id="hunted-icon">&#x1F3F9;</div>
+      <div id="hunted-label">HUNTED</div>
+      <div id="hunted-timer">5:00</div>
+    </div>
+    <div id="swap-hint" class="hidden">Press <b>F</b> to swap with an ally (nearby)</div>
     <div id="hint">click to look around</div>
     <div id="touch-ui" class="hidden">
       <button id="touch-sprint" class="ui-block">RUN</button>
