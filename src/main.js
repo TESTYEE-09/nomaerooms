@@ -14,6 +14,7 @@ import { AudioEngine } from './audio/audio.js';
 import { Clark } from './entities/clark.js';
 import { Net } from './net/net.js';
 import { RemotePlayers } from './net/remotes.js';
+import { ClarkAI } from './ai/clark-ai.js';
 import { loadSettings, settings } from './core/settings.js';
 import { clamp, damp } from './core/utils.js';
 import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL } from './core/config.js';
@@ -34,13 +35,19 @@ const lights = new LightPool(graphics.scene);
 lights.chunkManager = chunks;
 const remotes = new RemotePlayers(graphics.scene);
 const clark = new Clark(graphics.scene);
+const clarkAI = new ClarkAI();
 const net = new Net();
 
 let state = 'loading';      // loading | menu | playing | paused | dead | scare
 let fear = 0;
-let sendAcc = 0, clarkAcc = 0;
+let sendAcc = 0, clarkAcc = 0, aiAcc = 0;
 let myColor = '#7da2ff';
 const deadPeers = new Set();
+
+clarkAI.onSpeech = (text) => {
+  ui.addChat('Cpt. Clark', text, { proximity: clark.active ? 1 - Math.min(1, Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) / 25) : 0, ai: true });
+  if (net.isHost) net.sendClarkAI(text);
+};
 
 // ---------- boot ----------
 
@@ -123,6 +130,7 @@ function startGame(seed, code) {
     clark.relocateAway([{ x: player.pos.x, z: player.pos.z }]);
   }
 
+  if (net.isHost) clarkAI.init();
   audio.enterGame();
   state = 'playing';
   ui.showGame(code);
@@ -136,6 +144,7 @@ function startGame(seed, code) {
 
 function leaveToMenu(message = '') {
   net.destroy();
+  clarkAI.destroy();
   remotes.clear();
   deadPeers.clear();
   clark.active = false;
@@ -172,12 +181,23 @@ net.onChat = (id, text) => {
   const proximity = clamp(1.2 - dist / 30, 0.05, 1);
   ui.addChat(name, text, { proximity });
   audio.chatPing();
+  // if Clark is near the chatting player, he responds (host only)
+  if (net.isHost && clark.active) {
+    const rp = remotes.map.get(id);
+    if (rp) {
+      const cd = Math.hypot(clark.pos.x - rp.group.position.x, clark.pos.z - rp.group.position.z);
+      if (cd < 20) clarkAI.respondToChat(name, text);
+    }
+  }
 };
 net.onClark = (msg) => clark.applyNet(msg, 1 / CLARK_NET_HZ);
 net.onScareRequest = () => hostRelocateClark();   // a guest got caught
 net.onScared = (id) => {
   const name = net.peersInfo.get(id)?.name || 'someone';
   ui.addChat(null, `${name} was taken`, { system: true });
+};
+net.onClarkAI = (text) => {
+  ui.addChat('Cpt. Clark', text, { proximity: clark.active ? 1 - Math.min(1, Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) / 25) : 0, ai: true });
 };
 net.onClosed = (reason) => leaveToMenu(reason);
 
@@ -194,6 +214,11 @@ function hostRelocateClark(scaredGuestId = null) {
 ui.onChatSend = (text) => {
   net.sendChat(text);
   ui.addChat(ui.playerName(), text, { proximity: 1 });
+  // if Clark is nearby and host, he responds
+  if (net.isHost && clark.active) {
+    const dist = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
+    if (dist < 20) clarkAI.respondToChat(ui.playerName(), text);
+  }
 };
 ui.onResume = () => {
   state = 'playing';
@@ -283,7 +308,7 @@ player.onFootstep = (sprint) => audio.footstep(sprint);
 const clock = new THREE.Clock();
 
 // debug handle (harmless in production; used by automated checks)
-window.__nr = { player, clark, net, chunks, graphics, get state() { return state; } };
+window.__nr = { player, clark, clarkAI, net, chunks, graphics, get state() { return state; } };
 
 function frame() {
   requestAnimationFrame(frame);
@@ -320,6 +345,16 @@ function frame() {
     }
     if (state === 'playing' && clark.isScaring(player.pos.x, player.pos.z)) {
       triggerJumpscare();
+    }
+
+    // AI voice: update spatial audio + trigger ambient speech
+    if (net.isHost && state === 'playing') {
+      clarkAI.updateSpatial(clark.pos.x, clark.pos.z, player.pos.x, player.pos.z);
+      const dist = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
+      if (dist < 20) {
+        aiAcc += dt;
+        if (aiAcc > 1) { aiAcc = 0; clarkAI.ambient(); }
+      }
     }
   }
 
@@ -360,6 +395,15 @@ function frame() {
       dead: (state === 'dead' || state === 'scare') ? 1 : 0,
     });
   }
+
+  // proximity indicator
+  const nearby = [];
+  for (const [id, rp] of remotes.map) {
+    if (deadPeers.has(id)) continue;
+    const d = Math.hypot(rp.group.position.x - player.pos.x, rp.group.position.z - player.pos.z);
+    if (d < 15) nearby.push({ name: rp.info.name, dist: d });
+  }
+  ui.setProximity(nearby);
 
   // HUD
   ui.setStamina(player.stamina / STAMINA_MAX);

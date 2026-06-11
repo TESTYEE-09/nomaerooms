@@ -60,6 +60,7 @@ export class Net {
     this.onClark = null;
     this.onScareRequest = null;
     this.onScared = null;
+    this.onClarkAI = null;
     this.onClosed = null;
   }
 
@@ -181,6 +182,9 @@ export class Net {
       case 'scared':
         this.onScared?.(rest.id);
         break;
+      case 'ai':
+        this.onClarkAI?.(rest.text);
+        break;
       // 'hi' / 'join' / 'leave' / 'wel' are control messages handled by the
       // relay directly, never forwarded. 'relay' is the client→relay form,
       // also not forwarded. Anything else is ignored.
@@ -273,6 +277,11 @@ export class Net {
   requestScare() {
     if (this.isHost || !this.ws) return;
     this._send({ t: 'relay', m: 'scare' });
+  }
+
+  sendClarkAI(text) {
+    if (!this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'ai', text: String(text || '').slice(0, 300) });
   }
 
   playerCount() {

@@ -131,6 +131,17 @@ footer { position: absolute; bottom: 18px; font-size: 12px; color: var(--green-d
 #room-chip b { color: var(--green-bright); letter-spacing: 0.25em; margin-left: 4px; }
 #players-chip { right: 14px; top: 52px; cursor: default; }
 
+#proximity-indicator {
+  position: absolute; top: 90px; right: 14px;
+  background: var(--panel);
+  border: 1px solid rgba(207, 193, 118, 0.25);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--green-dim);
+  pointer-events: none;
+}
+
 #stamina-wrap {
   position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%);
   width: 180px; height: 7px;
@@ -162,6 +173,8 @@ footer { position: absolute; bottom: 18px; font-size: 12px; color: var(--green-d
 .chat-line { transition: opacity 1.2s; line-height: 1.45; word-wrap: break-word; }
 .chat-line b { color: var(--green-bright); }
 .chat-line.system { color: var(--green-dim); font-style: italic; }
+.chat-line.ai { color: #b06080; text-shadow: 0 0 8px rgba(180, 60, 100, 0.4); }
+.chat-line.ai b { color: #d06888; }
 
 #chat-input-wrap {
   position: absolute; left: 14px; bottom: 18px;

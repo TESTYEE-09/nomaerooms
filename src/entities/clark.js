@@ -1,9 +1,9 @@
-// Pirate Clark — the only other thing alive down here.
-// Procedurally generated — tall, lanky figure with procedural walk.
-// No external model files needed.
+// Pirate Clark — the entity. Now loads a GLB model (Captain Clark from the Backrooms).
+// Falls back to procedural geometry if the model fails to load.
 
 import * as THREE from 'three';
-import { CELL, CLARK_HEIGHT, CLARK_SCARE_DIST } from '../core/config.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { CELL, CLARK_SCARE_DIST } from '../core/config.js';
 import { clamp, damp } from '../core/utils.js';
 import * as gen from '../world/generator.js';
 
@@ -12,6 +12,7 @@ const SPEEDS = { [STATE.ROAM]: 1.1, [STATE.STALK]: 2.3, [STATE.CHASE]: 4.7 };
 const STALK_DIST = 55;
 const CHASE_DIST = 18;
 const REPATH_S = 0.7;
+const TARGET_HEIGHT = 2.0;
 
 export class Clark {
   constructor(scene) {
@@ -28,101 +29,112 @@ export class Clark {
     this.t = 0;
     this.moveAmount = 0;
 
-    // host brain
     this.path = [];
     this.repathT = 0;
     this.roamTarget = null;
 
-    // guest interpolation
     this.netFrom = new THREE.Vector3();
     this.netTo = new THREE.Vector3();
     this.netT = 1;
     this.netHeadingTo = 0;
 
-    this._model = this._createClarkModel();
-    this.group.add(this._model);
+    this._mixer = null;
+    this._model = null;
+    this._glbLoaded = false;
 
-    // a faint cold light
+    // aura light
     const aura = new THREE.PointLight(0x4a3050, 2.5, 7, 1.8);
     aura.position.y = 1.9;
     this.group.add(aura);
   }
 
-  _createClarkModel() {
+  async load(onProgress) {
+    console.log('[clark] load() — attempting GLB');
+    try {
+      const loader = new GLTFLoader();
+      const gltf = await new Promise((resolve, reject) => {
+        loader.load(
+          '/models/captain_clark.glb',
+          resolve,
+          (ev) => { if (onProgress) onProgress(ev); },
+          reject
+        );
+      });
+
+      const model = gltf.scene;
+
+      // measure and scale to TARGET_HEIGHT
+      const box = new THREE.Box3().setFromObject(model);
+      const h = box.max.y - box.min.y;
+      const scale = TARGET_HEIGHT / (h || 1);
+      model.scale.setScalar(scale);
+
+      // recenter horizontally, plant feet on ground
+      const scaledBox = new THREE.Box3().setFromObject(model);
+      const cx = (scaledBox.min.x + scaledBox.max.x) / 2;
+      const cz = (scaledBox.min.z + scaledBox.max.z) / 2;
+      model.position.set(-cx, -scaledBox.min.y, -cz);
+
+      model.traverse((child) => {
+        if (child.isMesh) child.castShadow = true;
+      });
+
+      this._model = model;
+      this.group.add(model);
+      this._glbLoaded = true;
+
+      // set up animation mixer if the model has animations
+      if (gltf.animations?.length) {
+        this._mixer = new THREE.AnimationMixer(model);
+        this._walkAction = this._mixer.clipAction(gltf.animations[0]);
+        this._walkAction.play();
+        this._walkAction.paused = true;
+      }
+
+      console.log('[clark] GLB loaded, scaled to', TARGET_HEIGHT, 'm');
+    } catch (e) {
+      console.warn('[clark] GLB failed, using procedural fallback:', e);
+      this._model = this._createFallbackModel();
+      this.group.add(this._model);
+      if (onProgress) onProgress({ loaded: 1, total: 1 });
+    }
+  }
+
+  _createFallbackModel() {
     const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x2a1a2e,
-      roughness: 0.8,
-      metalness: 0.1,
-    });
+    const mat = new THREE.MeshStandardMaterial({ color: 0x2a1a2e, roughness: 0.8, metalness: 0.1 });
     const glowMat = new THREE.MeshBasicMaterial({ color: 0x663388 });
 
-    // Torso
-    const torso = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.25, 1.0, 4, 8),
-      mat
-    );
-    torso.position.y = 1.3;
-    torso.castShadow = true;
-    group.add(torso);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 1.0, 4, 8), mat);
+    torso.position.y = 1.3; torso.castShadow = true; group.add(torso);
 
-    // Head
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 8, 8),
-      mat
-    );
-    head.position.y = 2.05;
-    head.scale.set(1, 1.3, 1);
-    head.castShadow = true;
-    group.add(head);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), mat);
+    head.position.y = 2.05; head.scale.set(1, 1.3, 1); head.castShadow = true; group.add(head);
 
-    // Glowing eyes
     const eyeGeo = new THREE.SphereGeometry(0.04, 6, 6);
     const leftEye = new THREE.Mesh(eyeGeo, glowMat);
-    leftEye.position.set(-0.06, 2.1, 0.18);
-    group.add(leftEye);
+    leftEye.position.set(-0.06, 2.1, 0.18); group.add(leftEye);
     const rightEye = new THREE.Mesh(eyeGeo, glowMat);
-    rightEye.position.set(0.06, 2.1, 0.18);
-    group.add(rightEye);
+    rightEye.position.set(0.06, 2.1, 0.18); group.add(rightEye);
 
-    // Arms
     const armGeo = new THREE.CapsuleGeometry(0.07, 1.1, 4, 8);
     const leftArm = new THREE.Mesh(armGeo, mat);
-    leftArm.position.set(-0.35, 1.2, 0);
-    leftArm.rotation.z = 0.3;
-    leftArm.castShadow = true;
-    group.add(leftArm);
+    leftArm.position.set(-0.35, 1.2, 0); leftArm.rotation.z = 0.3; leftArm.castShadow = true; group.add(leftArm);
     this._leftArm = leftArm;
-
     const rightArm = new THREE.Mesh(armGeo, mat);
-    rightArm.position.set(0.35, 1.2, 0);
-    rightArm.rotation.z = -0.3;
-    rightArm.castShadow = true;
-    group.add(rightArm);
+    rightArm.position.set(0.35, 1.2, 0); rightArm.rotation.z = -0.3; rightArm.castShadow = true; group.add(rightArm);
     this._rightArm = rightArm;
 
-    // Legs
     const legGeo = new THREE.CapsuleGeometry(0.09, 0.85, 4, 8);
     const leftLeg = new THREE.Mesh(legGeo, mat);
-    leftLeg.position.set(-0.12, 0.45, 0);
-    leftLeg.castShadow = true;
-    group.add(leftLeg);
+    leftLeg.position.set(-0.12, 0.45, 0); leftLeg.castShadow = true; group.add(leftLeg);
     this._leftLeg = leftLeg;
-
     const rightLeg = new THREE.Mesh(legGeo, mat);
-    rightLeg.position.set(0.12, 0.45, 0);
-    rightLeg.castShadow = true;
-    group.add(rightLeg);
+    rightLeg.position.set(0.12, 0.45, 0); rightLeg.castShadow = true; group.add(rightLeg);
     this._rightLeg = rightLeg;
 
-    // Coat flaps
     const flapGeo = new THREE.PlaneGeometry(0.3, 0.7);
-    const flapMat = new THREE.MeshStandardMaterial({
-      color: 0x1a0a1e,
-      roughness: 0.9,
-      metalness: 0,
-      side: THREE.DoubleSide,
-    });
+    const flapMat = new THREE.MeshStandardMaterial({ color: 0x1a0a1e, roughness: 0.9, side: THREE.DoubleSide });
     for (let i = 0; i < 4; i++) {
       const flap = new THREE.Mesh(flapGeo, flapMat);
       const angle = (i - 1.5) * 0.5;
@@ -130,21 +142,7 @@ export class Clark {
       flap.rotation.y = angle;
       group.add(flap);
     }
-
     return group;
-  }
-
-  async load(onProgress) {
-    try {
-      if (onProgress) {
-        console.log('[clark] load() called, invoking onProgress');
-        onProgress({ loaded: 1, total: 1 });
-        console.log('[clark] onProgress invoked');
-      }
-    } catch (e) {
-      console.error('[clark] load() error:', e);
-    }
-    return Promise.resolve();
   }
 
   spawnAt(wx, wz) {
@@ -181,6 +179,7 @@ export class Clark {
   hostUpdate(dt, players) {
     if (!this.active || !players.length) return;
     this.t += dt;
+    if (this._mixer) this._mixer.update(dt);
 
     let nd = Infinity, np = players[0];
     for (const p of players) {
@@ -271,6 +270,7 @@ export class Clark {
   guestUpdate(dt) {
     if (!this.active) return;
     this.t += dt;
+    if (this._mixer) this._mixer.update(dt);
     this.netT = Math.min(1, this.netT + dt / (this.netLerpTime || 0.12));
     this.group.position.lerpVectors(this.netFrom, this.netTo, this.netT);
     this.pos.copy(this.group.position);
@@ -283,18 +283,23 @@ export class Clark {
 
   _animate(dt) {
     this.group.rotation.y = this.heading - Math.PI / 2;
+
+    // GLB models use the animation mixer; animate walk speed
+    if (this._glbLoaded && this._walkAction) {
+      this._walkAction.paused = this.moveAmount < 0.05;
+      this._walkAction.timeScale = 0.5 + this.moveAmount * 1.5;
+      return;
+    }
+
+    // procedural fallback animation
     if (!this._model) return;
     const k = this.moveAmount;
     const f = 5.5 + k * 3.5;
-    // Legs
     if (this._leftLeg) this._leftLeg.rotation.x = Math.sin(this.t * f) * 0.6 * k;
     if (this._rightLeg) this._rightLeg.rotation.x = Math.sin(this.t * f + Math.PI) * 0.6 * k;
-    // Arms
     if (this._leftArm) this._leftArm.rotation.x = Math.sin(this.t * f + Math.PI) * 0.4 * k + 0.3;
     if (this._rightArm) this._rightArm.rotation.x = Math.sin(this.t * f) * 0.4 * k + 0.3;
-    // Body bob
     this._model.position.y = Math.abs(Math.sin(this.t * f)) * 0.05 * k;
-    // Head lean
     this._model.rotation.x = -0.05 * k;
   }
 
@@ -331,6 +336,7 @@ export class Clark {
 
   scareUpdate(dt, camera) {
     this._scareT += dt;
+    if (this._mixer) this._mixer.update(dt);
     const t = this._scareT;
     const k = Math.min(1, t / 1.2);
     let d = 1.5 - 1.15 * (k * k);

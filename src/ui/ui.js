@@ -154,6 +154,13 @@ export class UI {
     this.el.staminaFill.style.width = (frac * 100) + '%';
     this.el.staminaFill.classList.toggle('low', frac < 0.3);
   }
+  setProximity(nearby) {
+    const el = this.el.proximityIndicator;
+    if (!el) return;
+    if (!nearby.length) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.textContent = nearby.map((n) => `${n.name} nearby`).join(' · ');
+  }
   setHint(text) {
     this.el.hint.textContent = text || '';
     this.el.hint.style.opacity = text ? 1 : 0;
@@ -171,9 +178,9 @@ export class UI {
     this.el.chatInput.blur();
     this.el.canvas.focus?.();
   }
-  addChat(name, text, { system = false, proximity = 1 } = {}) {
+  addChat(name, text, { system = false, proximity = 1, ai = false } = {}) {
     const div = document.createElement('div');
-    div.className = 'chat-line' + (system ? ' system' : '');
+    div.className = 'chat-line' + (system ? ' system' : '') + (ai ? ' ai' : '');
     if (system) div.textContent = text;
     else {
       const b = document.createElement('b');
