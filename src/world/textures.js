@@ -55,7 +55,7 @@ function noiseOverlay(ctx, rng, count, alpha, dark = true) {
   }
 }
 
-// ---- Green damask wallpaper -------------------------------------------------
+// ---- Classic Backrooms yellow wallpaper ------------------------------------
 // One texture tile = 2 m wide x WALL_H tall on the wall. A baseboard is painted
 // into the bottom ~7% so wall bases read as wood trim without extra geometry.
 
@@ -99,11 +99,11 @@ function makeWallpaper() {
   const c = makeCanvas();
   const ctx = c.getContext('2d');
 
-  // base: sage green with vertical tonal streaks
-  ctx.fillStyle = '#6f7b58';
+  // base: iconic Backrooms yellow-beige with vertical tonal streaks
+  ctx.fillStyle = '#c9b06b';
   ctx.fillRect(0, 0, SIZE, SIZE);
   for (let x = 0; x < SIZE; x += 2) {
-    ctx.fillStyle = `rgba(${40 + rng() * 30 | 0},${52 + rng() * 26 | 0},${30 + rng() * 18 | 0},${0.05 + rng() * 0.07})`;
+    ctx.fillStyle = `rgba(${160 + rng() * 35 | 0},${140 + rng() * 30 | 0},${80 + rng() * 25 | 0},${0.06 + rng() * 0.09})`;
     ctx.fillRect(x, 0, 2, SIZE);
   }
 
@@ -113,41 +113,52 @@ function makeWallpaper() {
     for (let col = -1; col < 5; col++) {
       const ox = col * step + (row % 2 ? step / 2 : 0);
       const oy = row * step * 0.62;
-      // layered motif: dark base, mid tone, faint highlight for embossed depth
-      damaskMotif(ctx, ox + 2, oy + 3, step * 0.52, 'rgba(40, 50, 28, 0.9)');
-      damaskMotif(ctx, ox, oy, step * 0.52, 'rgba(78, 94, 56, 0.95)');
-      damaskMotif(ctx, ox - 1, oy - 2, step * 0.46, 'rgba(132, 148, 98, 0.4)');
+      // layered motif: dark brown base, mid yellow-brown, faint highlight
+      damaskMotif(ctx, ox + 2, oy + 3, step * 0.52, 'rgba(90, 72, 38, 0.85)');
+      damaskMotif(ctx, ox, oy, step * 0.52, 'rgba(140, 115, 65, 0.9)');
+      damaskMotif(ctx, ox - 1, oy - 2, step * 0.46, 'rgba(200, 180, 120, 0.35)');
     }
   }
 
-  noiseOverlay(ctx, rng, 9000, 0.10);
-  noiseOverlay(ctx, rng, 3000, 0.05, false);
+  noiseOverlay(ctx, rng, 12000, 0.12);
+  noiseOverlay(ctx, rng, 4000, 0.06, false);
 
   // damp grime climbing from the bottom
   const g = ctx.createLinearGradient(0, SIZE, 0, SIZE * 0.55);
-  g.addColorStop(0, 'rgba(28, 26, 16, 0.55)');
-  g.addColorStop(1, 'rgba(28, 26, 16, 0)');
+  g.addColorStop(0, 'rgba(50, 42, 28, 0.5)');
+  g.addColorStop(1, 'rgba(50, 42, 28, 0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, SIZE, SIZE);
   // occasional drip stains
-  for (let i = 0; i < 7; i++) {
-    const x = rng() * SIZE, w = 6 + rng() * 22, h = 60 + rng() * 170;
+  for (let i = 0; i < 10; i++) {
+    const x = rng() * SIZE, w = 4 + rng() * 20, h = 50 + rng() * 200;
     const dg = ctx.createLinearGradient(0, SIZE - h, 0, SIZE);
-    dg.addColorStop(0, 'rgba(25,22,12,0)');
-    dg.addColorStop(1, 'rgba(25,22,12,0.35)');
+    dg.addColorStop(0, 'rgba(55, 45, 25,0)');
+    dg.addColorStop(1, 'rgba(55, 45, 25,0.4)');
     ctx.fillStyle = dg;
     ctx.fillRect(x, SIZE - h, w, h);
   }
 
+  // broad water damage patches
+  for (let i = 0; i < 4; i++) {
+    const x = rng() * SIZE, y = rng() * SIZE * 0.6, r = 50 + rng() * 120;
+    const wg = ctx.createRadialGradient(x, y, 0, x, y, r);
+    wg.addColorStop(0, 'rgba(100, 80, 40, 0.2)');
+    wg.addColorStop(0.7, 'rgba(80, 62, 30, 0.15)');
+    wg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = wg;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
   // baseboard: dark varnished wood strip at the bottom of the tile
   const bbH = SIZE * 0.07;
-  ctx.fillStyle = '#3a2e1f';
+  ctx.fillStyle = '#4a3824';
   ctx.fillRect(0, SIZE - bbH, SIZE, bbH);
   for (let i = 0; i < 90; i++) {
-    ctx.fillStyle = `rgba(${20 + rng() * 40 | 0},${16 + rng() * 28 | 0},${10 + rng() * 16 | 0},0.35)`;
+    ctx.fillStyle = `rgba(${35 + rng() * 35 | 0},${26 + rng() * 24 | 0},${16 + rng() * 18 | 0},0.35)`;
     ctx.fillRect(rng() * SIZE, SIZE - bbH + rng() * bbH, 20 + rng() * 60, 1 + rng() * 2);
   }
-  ctx.fillStyle = 'rgba(255,240,200,0.13)';
+  ctx.fillStyle = 'rgba(255,240,200,0.10)';
   ctx.fillRect(0, SIZE - bbH, SIZE, 2);
 
   // height map for the normal: motifs are slightly embossed, baseboard raised
@@ -163,7 +174,7 @@ function makeWallpaper() {
     }
   }
   const hrng = mulberry32(0xbeef);
-  noiseOverlay(hctx, hrng, 12000, 0.18);
+  noiseOverlay(hctx, hrng, 15000, 0.2);
   hctx.fillStyle = '#b0b0b0';
   hctx.fillRect(0, SIZE - bbH, SIZE, bbH);
 

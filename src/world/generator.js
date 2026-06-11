@@ -49,14 +49,26 @@ export function pillar(x, z) {
 }
 
 export function fixture(x, z) {
-  // halls are lit on a loose grid; corridors get sparse, moody coverage
-  if (isHall(x, z)) return ((x % 2) + 2) % 2 === 0 && ((z % 2) + 2) % 2 === 0;
-  return hash3(x, z, 7, SEED) < 0.24;
+  // halls are lit on a loose broken grid with randomness
+  if (isHall(x, z)) {
+    const gridOn = ((x % 2) + 2) % 2 === 0 && ((z % 2) + 2) % 2 === 0;
+    if (!gridOn) return false;
+    return hash3(x, z, 7, SEED) < 0.82;
+  }
+  // corridors: very sparse — ~18% have any fixture, making large dark stretches
+  const hasFixture = hash3(x, z, 7, SEED) < 0.18;
+  if (!hasFixture) return false;
+  // 30% of fixtures are completely dead (no light, just a broken frame)
+  return hash3(x, z, 42, SEED) > 0.3;
 }
 
-// flicker personality 0..1 (higher = steadier)
+// flicker personality 0..1 (lower = dying / erratic)
 export function fixtureSteadiness(x, z) {
-  return hash3(x, z, 8, SEED);
+  const raw = hash3(x, z, 8, SEED);
+  // bi-modal: most are either quite steady or dying
+  if (raw < 0.25) return raw * 0.4;        // dying
+  if (raw < 0.4) return 0.1 + raw * 0.3;   // flickery
+  return 0.55 + raw * 0.4;                 // steady
 }
 
 // Can an agent walk from cell a to adjacent cell b? (4-connected)

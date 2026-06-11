@@ -45,7 +45,11 @@ export class ChunkManager {
     this.radius = 2;
     this._buildQueue = [];
     this._center = { x: 1e9, z: 1e9 };
+    this._objectPlacer = null; // set externally by main.js
   }
+
+  set objectPlacer(op) { this._objectPlacer = op; }
+  get objectPlacer() { return this._objectPlacer; }
 
   setRadius(r) { this.radius = r; this._center = { x: 1e9, z: 1e9 }; }
 
@@ -68,7 +72,7 @@ export class ChunkManager {
       for (const [k, c] of this.chunks) {
         const [x, z] = k.split(',').map(Number);
         if (Math.max(Math.abs(x - ccx), Math.abs(z - ccz)) > this.radius + 1) {
-          this._dispose(c);
+          this._dispose(c, x, z);
           this.chunks.delete(k);
         }
       }
@@ -183,10 +187,16 @@ export class ChunkManager {
     }
 
     this.scene.add(group);
+
+    // build decorative objects for this chunk
+    if (this._objectPlacer) {
+      this._objectPlacer.addChunk(ccx, ccz);
+    }
+
     return { group, colliders, fixtures, glowMesh };
   }
 
-  _dispose(chunk) {
+  _dispose(chunk, ccx, ccz) {
     this.scene.remove(chunk.group);
     chunk.group.traverse((o) => {
       if (o.isMesh) {
@@ -194,6 +204,10 @@ export class ChunkManager {
         if (o.isInstancedMesh && o.material !== this.materials.fixtureFrame) o.material.dispose();
       }
     });
+    // remove decorative objects for this chunk
+    if (this._objectPlacer) {
+      this._objectPlacer.removeChunk(ccx, ccz);
+    }
   }
 
   // Wall/pillar AABBs near a world position (for player & Clark collision).

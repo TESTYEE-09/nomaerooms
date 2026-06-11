@@ -13,6 +13,7 @@ const STALK_DIST = 55;
 const CHASE_DIST = 18;
 const REPATH_S = 0.7;
 const TARGET_HEIGHT = 2.0;
+const ANIM_FADE_DURATION = 0.3;
 
 export class Clark {
   constructor(scene) {
@@ -41,6 +42,10 @@ export class Clark {
     this._mixer = null;
     this._model = null;
     this._glbLoaded = false;
+    this._walkAction = null;
+    this._idleAction = null;
+    this._prevMoving = false;
+    this._animMoving = false;
 
     // aura light
     const aura = new THREE.PointLight(0x4a3050, 2.5, 7, 1.8);
@@ -108,9 +113,28 @@ export class Clark {
       // set up animation mixer if the model has animations
       if (gltf.animations?.length) {
         this._mixer = new THREE.AnimationMixer(model);
-        this._walkAction = this._mixer.clipAction(gltf.animations[0]);
-        this._walkAction.play();
-        this._walkAction.paused = true;
+
+        // Find animations by name, fall back to index order
+        const anims = gltf.animations;
+        const walkClip = anims.find((a) => /walk|run|move|loop/i.test(a.name)) || anims[0];
+        const idleClip = anims.find((a) => /idle|stand|breath|still|wait/i.test(a.name)) ||
+                         (anims.length > 1 ? anims[1] : walkClip);
+
+        this._walkAction = this._mixer.clipAction(walkClip);
+        this._idleAction = idleClip !== walkClip ? this._mixer.clipAction(idleClip) : this._walkAction;
+
+        // If we have distinct idle and walk, fade the idle in and start the walk at zero weight
+        if (this._idleAction !== this._walkAction) {
+          this._idleAction.play();
+          this._walkAction.play();
+          this._walkAction.setEffectiveWeight(0);
+          this._idleAction.setEffectiveWeight(1);
+        } else {
+          this._walkAction.play();
+          this._walkAction.paused = true;
+        }
+        this._prevMoving = false;
+        this._animMoving = false;
       }
 
       console.log('[clark] GLB loaded, scaled to', TARGET_HEIGHT, 'm');
@@ -325,10 +349,37 @@ export class Clark {
   _animate(dt) {
     this.group.rotation.y = this.heading - Math.PI / 2;
 
-    // GLB models use the animation mixer; animate walk speed
-    if (this._glbLoaded && this._walkAction) {
-      this._walkAction.paused = this.moveAmount < 0.05;
-      this._walkAction.timeScale = 0.5 + this.moveAmount * 1.5;
+    const moving = this.moveAmount > 0.08;
+
+    // GLB models use the animation mixer with crossfade
+    if (this._glbLoaded && this._mixer && this._walkAction) {
+      if (moving !== this._prevMoving) {
+        this._prevMoving = moving;
+        this._animMoving = moving;
+        if (this._idleAction !== this._walkAction) {
+          if (moving) {
+            this._walkAction.setEffectiveWeight(0);
+            this._walkAction.play();
+            this._walkAction.fadeIn(ANIM_FADE_DURATION);
+            this._idleAction.fadeOut(ANIM_FADE_DURATION);
+          } else {
+            this._idleAction.setEffectiveWeight(0);
+            this._idleAction.play();
+            this._idleAction.fadeIn(ANIM_FADE_DURATION);
+            this._walkAction.fadeOut(ANIM_FADE_DURATION);
+          }
+        } else {
+          this._walkAction.paused = !moving;
+          if (!this._walkAction.paused && this._walkAction.timeScale === 0) {
+            this._walkAction.timeScale = 0.01;
+          }
+        }
+      }
+      if (moving) {
+        this._walkAction.timeScale = damp(this._walkAction.timeScale, 0.5 + this.moveAmount * 1.5, 6, dt);
+      } else if (this._idleAction === this._walkAction) {
+        this._walkAction.timeScale = 0;
+      }
       return;
     }
 

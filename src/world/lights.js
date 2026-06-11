@@ -7,8 +7,8 @@ import * as THREE from 'three';
 import { hash2 } from '../core/utils.js';
 import { WALL_H } from '../core/config.js';
 
-const TINT = new THREE.Color(0.93, 1.0, 0.9);   // cold fluorescent green-white
-const GLOW_BRIGHT = 2.8;                          // HDR panel brightness
+const TINT = new THREE.Color(0.88, 0.98, 0.82);  // sickly fluorescent yellow-green
+const GLOW_BRIGHT = 3.2;                          // HDR panel brightness
 const POOL_RANGE = 26;                            // metres considered for real lights
 
 export class LightPool {
@@ -18,8 +18,8 @@ export class LightPool {
     this.spots = [];
     this.assigned = [];     // fixtures currently owning a light (to reset glow)
     this._tmpColor = new THREE.Color();
-    this.ambient = new THREE.AmbientLight(0x2c3326, 1.2);
-    this.hemi = new THREE.HemisphereLight(0x3c4434, 0x1c190f, 1.0);
+    this.ambient = new THREE.AmbientLight(0x3c3826, 0.3);
+    this.hemi = new THREE.HemisphereLight(0x4c4434, 0x1c190f, 0.25);
     scene.add(this.ambient, this.hemi);
     this.nearestFlicker = 1;  // exposed for audio buzz
     this.nearestDist = 1e9;
@@ -55,16 +55,37 @@ export class LightPool {
   // flicker multiplier for a fixture at time t
   _flicker(f, t) {
     const s = f.steadiness;
-    if (s < 0.16) {
-      // dying tube: stutters, sometimes fully dark
-      const slot = Math.floor(t * 11);
-      const r = hash2(slot, f.id, 1234);
-      if (r < 0.28) return 0.02;
-      if (r < 0.5) return 0.35 + r;
-      return 0.85 + 0.15 * hash2(slot, f.id, 99);
+    const slot = Math.floor(t * 13);
+    const r = hash2(slot, f.id, 1234);
+    const r2 = hash2(slot + 1, f.id, 5678);
+
+    if (s < 0.1) {
+      // dying tube: mostly off, rare stutter
+      if (r < 0.35) return 0.01;
+      if (r < 0.5) return 0.2 + r2 * 0.5;
+      // occasional longer buzz
+      const buzzSlot = Math.floor(t * 3);
+      if (hash2(buzzSlot, f.id, 333) < 0.2) return 0.4 + r2 * 0.3;
+      return 0.01;
     }
-    // healthy tube: faint mains shimmer
-    return 0.93 + 0.07 * hash2(Math.floor(t * 24), f.id, 7);
+    if (s < 0.25) {
+      // flickery tube: strobes rapidly
+      if (r < 0.3) return 0.01;
+      if (r < 0.45) return 0.15 + r2 * 0.2;
+      if (r < 0.7) return 0.6 + 0.3 * hash2(slot, f.id, 99);
+      return 0.9 + 0.1 * hash2(slot, f.id + 1, 77);
+    }
+    if (s < 0.45) {
+      // mildly erratic: occasional dips
+      const dip = hash2(Math.floor(t * 6), f.id, 444);
+      if (dip < 0.08) return 0.1 + r2 * 0.3;
+      if (dip < 0.15) return 0.5 + r2 * 0.3;
+      return 0.85 + 0.15 * hash2(Math.floor(t * 20), f.id, 7);
+    }
+    // healthy tube: faint mains shimmer with occasional micro-flicker
+    const glitch = hash2(Math.floor(t * 8), f.id, 888);
+    if (glitch < 0.02) return 0.3 + r2 * 0.4;
+    return 0.88 + 0.12 * hash2(Math.floor(t * 24), f.id, 7);
   }
 
   update(t, px, pz) {

@@ -7,6 +7,7 @@ import { Graphics } from './render/graphics.js';
 import { buildMaterials } from './world/textures.js';
 import { ChunkManager } from './world/chunks.js';
 import { LightPool } from './world/lights.js';
+import { ObjectPlacer } from './world/objects.js';
 import * as gen from './world/generator.js';
 import { Input, IS_TOUCH } from './core/input.js';
 import { PlayerController } from './player/controller.js';
@@ -31,6 +32,8 @@ const audio = new AudioEngine(settings);
 const player = new PlayerController(graphics.camera, input, settings);
 const materials = buildMaterials();
 const chunks = new ChunkManager(graphics.scene, materials);
+const objects = new ObjectPlacer(graphics.scene);
+chunks.objectPlacer = objects;
 const lights = new LightPool(graphics.scene);
 lights.chunkManager = chunks;
 const remotes = new RemotePlayers(graphics.scene);
@@ -55,9 +58,13 @@ const TIPS = [
   'waking the fluorescents…',
   'unrolling the damp carpet…',
   'hanging the wallpaper…',
+  'placing the furniture…',
   'he can hear you…',
 ];
 ui.showLoading(0.02, TIPS[0]);
+
+// Load Sketchfab models in the background
+void objects.loadSketchfabModels();
 
 clark.load((ev) => {
   console.log('[main] clark.load callback fired:', ev);
@@ -110,6 +117,7 @@ function myProfile() {
 
 function startGame(seed, code) {
   gen.setSeed(seed);
+  objects.setSeed(seed);
   const q = graphics.applyQuality(settings.quality, settings.fov);
   chunks.setRadius(q.chunkRadius);
   lights.configure(q);
@@ -148,6 +156,7 @@ function leaveToMenu(message = '') {
   clarkAI.destroy();
   remotes.clear();
   deadPeers.clear();
+  objects.clear();
   clark.active = false;
   clark.group.visible = false;
   input.releaseLock();

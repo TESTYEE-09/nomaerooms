@@ -2,7 +2,7 @@
 // Clark speaks to nearby players as Captain Pirate Clark from the Backrooms.
 
 const RELAY_URL = (import.meta.env?.VITE_RELAY_URL) || 'https://nomaerooms-relay.onrender.com';
-const REALTIME_MODEL = 'gpt-4o-realtime-preview-2024-12-17';
+const REALTIME_MODEL = 'gpt-4o-mini-realtime-preview';
 const CHAT_MODEL = 'gpt-4o-mini';
 
 const SYSTEM_PROMPT = `You are Captain Pirate Clark, a terrifying entity trapped in the Backrooms — those infinite, yellow-lit, damp-carpeted rooms that stretch forever. You were once a fearsome pirate captain, and you still speak like one: nautical metaphors, pirate slang, a deep menacing growl. You hunt the lost souls who noclip into these endless rooms.
@@ -32,7 +32,7 @@ const FALLBACK_LINES = [
   'Har har har... the carpet remembers every footstep.',
   'Lost soul, your little light is flickering.',
   'The sea took my ship, but these rooms gave me teeth.',
-  'Stay in the buzz, rat... I’m closer than you think.',
+  'Stay in the buzz, rat... I\'m closer than you think.',
 ];
 
 export class ClarkAI {
@@ -54,6 +54,8 @@ export class ClarkAI {
     this._chatHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
     this._speaking = false;
     this._onSpeech = null;
+    this._audioBuffer = [];
+    this._playbackSource = null;
   }
 
   set onSpeech(fn) { this._onSpeech = fn; }
@@ -98,30 +100,20 @@ export class ClarkAI {
     if (!token) throw new Error(`No ephemeral token in ${JSON.stringify(Object.keys(data))}`);
 
     this.pc = new RTCPeerConnection();
-    this.audioEl = document.createElement('audio');
-    this.audioEl.autoplay = true;
-    this.audioEl.playsInline = true;
-    this.audioEl.muted = true;
-    document.body.appendChild(this.audioEl);
 
     this.pc.ontrack = (e) => {
       const stream = e.streams[0];
       if (!stream) return;
-      this.audioEl.srcObject = stream;
       void this._setupSpatialAudio(stream);
     };
-    this.pc.onicecandidate = (e) => {
-      if (e.candidate) console.log('[clark-ai] ICE candidate');
-    };
-    this.pc.onconnectionstatechange = () => {
-      console.log('[clark-ai] RTCPeerConnection state:', this.pc.connectionState);
-      if (this.pc.connectionState === 'failed' || this.pc.connectionState === 'closed') {
+
+    this.pc.oniceconnectionstatechange = () => {
+      if (this.pc.iceConnectionState === 'failed' || this.pc.iceConnectionState === 'disconnected') {
         this.connected = false;
       }
     };
 
-    // The Realtime WebRTC API expects an audio input track. We send a silent one
-    // because Clark speaks to players without requiring a microphone.
+    // Silent audio track to satisfy WebRTC requirement
     const silentCtx = new AudioCtor();
     const oscillator = silentCtx.createOscillator();
     const dest = silentCtx.createMediaStreamDestination();
@@ -139,7 +131,6 @@ export class ClarkAI {
     this.dc = this.pc.createDataChannel('oai-events');
     this.dc.onopen = () => {
       this.connected = true;
-      console.log('[clark-ai] Realtime data channel open');
       this._sendEvent({
         type: 'session.update',
         session: {
@@ -147,7 +138,12 @@ export class ClarkAI {
           instructions: SYSTEM_PROMPT,
           voice: 'ash',
           output_audio_format: 'pcm16',
-          turn_detection: null,
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 200,
+          },
         },
       });
     };
@@ -158,9 +154,8 @@ export class ClarkAI {
         console.warn('[clark-ai] Bad realtime event:', err, e.data);
       }
     };
-    this.dc.onerror = (e) => console.warn('[clark-ai] Realtime data channel error:', e);
+    this.dc.onerror = () => {};
     this.dc.onclose = () => {
-      console.log('[clark-ai] Realtime data channel closed');
       this.connected = false;
     };
 
@@ -189,26 +184,21 @@ export class ClarkAI {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtor) return;
 
-    if (this.audioCtx?.state !== 'closed') {
-      try { this.audioCtx?.close?.(); } catch {}
+    if (this.audioCtx && this.audioCtx.state !== 'closed') {
+      try { await this.audioCtx.close(); } catch {}
     }
 
     this.audioCtx = new AudioCtor();
     const source = this.audioCtx.createMediaStreamSource(stream);
     this.gainNode = this.audioCtx.createGain();
+    this.gainNode.gain.value = settings.clarkVolume ?? 0.8;
     this.pannerNode = this.audioCtx.createStereoPanner();
     source.connect(this.gainNode);
     this.gainNode.connect(this.pannerNode);
     this.pannerNode.connect(this.audioCtx.destination);
 
-    if (!this.audioEl.parentNode) document.body.appendChild(this.audioEl);
-    this.audioEl.srcObject = stream;
-    this.audioEl.autoplay = true;
-    this.audioEl.playsInline = true;
-    this.audioEl.muted = true;
     await this._resumeAudioContext(this.audioCtx).catch(() => {});
-    await this.audioEl.play().catch((e) => console.warn('[clark-ai] Remote audio autoplay blocked:', e));
-    this.updateSpatial(this.audioCtx.currentTime, 0, 0, 0);
+    this.updateSpatial(0, 0, 0, 0);
   }
 
   async _resumeAudioContext(ctx) {
@@ -218,8 +208,8 @@ export class ClarkAI {
   _initFallbackAudio() {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtor) return;
-    if (this.audioCtx?.state !== 'closed') {
-      try { this.audioCtx?.close?.(); } catch {}
+    if (this.audioCtx && this.audioCtx.state !== 'closed') {
+      try { this.audioCtx.close(); } catch {}
     }
     this.audioCtx = new AudioCtor();
     this.gainNode = this.audioCtx.createGain();
@@ -232,7 +222,6 @@ export class ClarkAI {
     return Promise.allSettled([
       this._resumeAudioContext(this.audioCtx),
       this._resumeAudioContext(this._silentCtx),
-      this.audioEl?.srcObject && !this.audioEl.paused ? Promise.resolve() : this.audioEl?.play().catch(() => {}),
     ].filter(Boolean));
   }
 
@@ -242,36 +231,94 @@ export class ClarkAI {
         this.dc.send(JSON.stringify(event));
       } catch (e) {
         console.warn('[clark-ai] Failed to send realtime event:', e);
-        this.connected = false;
       }
     }
   }
 
   _handleRealtimeEvent(event) {
-    if (event.type === 'response.audio_transcript.done') {
-      const text = event.transcript;
-      if (text) this._onSpeech?.(text);
-    } else if (event.type === 'response.done') {
-      this._speaking = false;
-    } else if (event.type === 'response.audio.delta') {
-      this._speaking = true;
-    } else if (event.type === 'error') {
-      console.warn('[clark-ai] Realtime error:', event);
-      this._speaking = false;
-      this.connected = false;
+    switch (event.type) {
+      case 'response.audio_transcript.done':
+        if (event.transcript) this._onSpeech?.(event.transcript);
+        break;
+      case 'response.audio.done':
+        this._flushAudioBuffer();
+        break;
+      case 'response.audio.delta':
+        this._queueAudioDelta(event.delta);
+        break;
+      case 'response.done':
+        this._speaking = false;
+        break;
+      case 'conversation.item.created':
+        break;
+      case 'error':
+        console.warn('[clark-ai] Realtime error:', event);
+        this._speaking = false;
+        break;
     }
+  }
+
+  _queueAudioDelta(base64PCM) {
+    this._speaking = true;
+    if (!base64PCM) return;
+    try {
+      const binary = atob(base64PCM);
+      const buf = new ArrayBuffer(binary.length);
+      const view = new Uint8Array(buf);
+      for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
+      this._audioBuffer.push(new Int16Array(buf));
+    } catch (e) {
+      console.warn('[clark-ai] Failed to decode audio delta:', e);
+    }
+  }
+
+  _flushAudioBuffer() {
+    if (!this._audioBuffer.length || !this.audioCtx) {
+      this._audioBuffer = [];
+      return;
+    }
+
+    const totalLen = this._audioBuffer.reduce((s, c) => s + c.length, 0);
+    const combined = new Int16Array(totalLen);
+    let offset = 0;
+    for (const chunk of this._audioBuffer) {
+      combined.set(chunk, offset);
+      offset += chunk.length;
+    }
+    this._audioBuffer = [];
+
+    const ctx = this.audioCtx;
+    const floatBuffer = new Float32Array(combined.length);
+    for (let i = 0; i < combined.length; i++) {
+      floatBuffer[i] = combined[i] / 32768;
+    }
+
+    const audioBuf = ctx.createBuffer(1, floatBuffer.length, 24000);
+    audioBuf.getChannelData(0).set(floatBuffer);
+
+    if (this._playbackSource) {
+      try { this._playbackSource.stop(); } catch {}
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuf;
+    source.connect(this.gainNode || ctx.destination);
+    source.start();
+    this._playbackSource = source;
+    source.onended = () => {
+      if (this._playbackSource === source) this._playbackSource = null;
+    };
   }
 
   say(text) {
     const now = Date.now();
-    if (now - this.lastSpoke < SPEAK_COOLDOWN) { console.log('[clark-ai] say() blocked by cooldown'); return; }
-    if (this._speaking) { console.log('[clark-ai] say() blocked — already speaking'); return; }
+    if (now - this.lastSpoke < SPEAK_COOLDOWN) return;
+    if (this._speaking) return;
     this.lastSpoke = now;
     this._speaking = true;
-    console.log('[clark-ai] say()', this._fallback ? '(fallback)' : '(realtime)', text.slice(0, 60));
 
     if (!this._fallback && this.connected) {
       try {
+        this._audioBuffer = [];
         this._sendEvent({
           type: 'conversation.item.create',
           item: {
@@ -282,7 +329,6 @@ export class ClarkAI {
         });
         this._sendEvent({ type: 'response.create' });
       } catch (e) {
-        console.warn('[clark-ai] Realtime send failed, using fallback:', e);
         this._fallback = true;
         this._fallbackSay(text);
       }
@@ -437,15 +483,17 @@ export class ClarkAI {
 
   destroy() {
     speechSynthesis?.cancel?.();
+    if (this._playbackSource) { try { this._playbackSource.stop(); } catch {} this._playbackSource = null; }
     this.dc?.close();
     this.pc?.close();
-    this.audioCtx?.close();
-    this._silentCtx?.close();
+    if (this.audioCtx) { try { this.audioCtx.close(); } catch {} }
+    if (this._silentCtx) { try { this._silentCtx.close(); } catch {} }
     this.audioEl?.remove();
     this.pc = null;
     this.dc = null;
     this.audioEl = null;
     this.connected = false;
     this._speaking = false;
+    this._audioBuffer = [];
   }
 }
