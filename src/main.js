@@ -18,6 +18,9 @@ import { loadSettings, settings } from './core/settings.js';
 import { clamp, damp } from './core/utils.js';
 import { QUALITY, STAMINA_MAX, NET_SEND_HZ, CLARK_NET_HZ, CELL } from './core/config.js';
 
+console.log('[main] module starting');
+console.log('[main] Clark imported:', typeof Clark);
+
 loadSettings();
 
 const ui = new UI();
@@ -364,3 +367,4 @@ function frame() {
   graphics.render(t);
 }
 frame();
+// force rebuild
