@@ -3,38 +3,42 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#0a0d06" />
-  <title>NomaeROOMS</title>
-  <meta name="description" content="A multiplayer Backrooms horror game in your browser. Get lost with friends. Watch out for Pirate Clark." />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%231a2012'/><text y='.9em' font-size='80' x='10'>👁</text></svg>" />
+  <meta name="theme-color" content="#06080a" />
+  <title>NomaeLETHAL</title>
+  <meta name="description" content="A co-op Lethal Company-like in your browser. Land on moons, loot scrap, meet the quota. Don't die." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23101a12'/><text y='.9em' font-size='80' x='10'>☠</text></svg>" />
 </head>
 <body>
   <canvas id="canvas"></canvas>
 
   <!-- Loading -->
   <div id="loading" class="screen">
-    <h1 class="logo">Nomae<span>ROOMS</span></h1>
+    <h1 class="logo">Nomae<span>LETHAL</span></h1>
     <div class="bar"><div id="load-fill"></div></div>
-    <p id="load-tip">waking the fluorescents…</p>
+    <p id="load-tip">requisitioning assets…</p>
   </div>
 
   <!-- Main menu -->
   <div id="menu" class="screen hidden">
-    <h1 class="logo">Nomae<span>ROOMS</span></h1>
-    <p class="tagline">you shouldn't have noclipped here.</p>
+    <h1 class="logo">Nomae<span>LETHAL</span></h1>
+    <p class="tagline">meet the quota. or else.</p>
 
     <div class="menu-card">
-      <input id="name-input" maxlength="16" placeholder="your name" autocomplete="off" />
-      <button id="host-btn" class="primary">PLAY</button>
+      <input id="name-input" maxlength="16" placeholder="employee name" autocomplete="off" />
+      <button id="host-btn" class="primary">HOST CREW</button>
+      <div class="join-row">
+        <input id="join-code" maxlength="6" placeholder="CODE" autocomplete="off" />
+        <button id="join-btn">JOIN</button>
+      </div>
       <button id="settings-btn" class="ghost">settings</button>
       <p id="menu-error" class="error hidden"></p>
     </div>
 
     <footer>
-      WASD move · Shift sprint · T chat · Esc menu · <b>E</b> pickup · <b>F</b> swap (hunted)<br/>
-      <span class="dim">"Pirate Clark" model © Slightlyoversizedsweater, Sketchfab — CC BY 4.0</span>
+      WASD move · Shift sprint · <b>E</b> interact · <b>G</b> drop · T chat · Esc menu<br/>
+      <span class="dim">models © their Sketchfab authors (CC-BY) — see CREDITS in repo</span>
     </footer>
-    <div id="version">v1.0</div>
+    <div id="version">v0.1</div>
   </div>
 
   <!-- Settings -->
@@ -60,45 +64,45 @@
       <label>music <span id="music-val"></span>
         <input id="set-music" type="range" min="0" max="1" step="0.05" />
       </label>
-      <h3 class="settings-divider">voice</h3>
-      <label class="toggle-row">microphone
-        <input id="set-mic-enabled" type="checkbox" />
-      </label>
-      <label>mic volume <span id="mic-vol-val"></span>
-        <input id="set-mic-vol" type="range" min="0" max="1" step="0.05" />
-      </label>
-      <label>clark voice <span id="clark-vol-val"></span>
-        <input id="set-clark-vol" type="range" min="0" max="1" step="0.05" />
-      </label>
-      <label class="toggle-row">clark AI voice
-        <input id="set-clark-ai-enabled" type="checkbox" />
-      </label>
       <button id="settings-back" class="primary">done</button>
+    </div>
+  </div>
+
+  <!-- Terminal -->
+  <div id="terminal" class="hidden">
+    <div id="term-frame">
+      <div id="term-log"></div>
+      <div id="term-prompt">&gt;<input id="term-input" autocomplete="off" spellcheck="false" /></div>
     </div>
   </div>
 
   <!-- HUD -->
   <div id="hud" class="hidden">
     <div id="crosshair"></div>
-    <div id="room-chip" class="hidden"><b id="room-code"></b></div>
-    <div id="players-chip">1 lost</div>
+    <div id="room-chip"><b id="room-code"></b></div>
+    <div id="players-chip">1 employed</div>
+    <div id="status-chip">
+      <span id="hud-day">DAY 1</span>
+      <span id="hud-clock" class="hidden">08:00</span>
+      <span id="hud-quota">$0 / $130 · 3d</span>
+      <span id="hud-money">$60</span>
+    </div>
+    <div id="ship-chip" class="hidden">ship: $0</div>
+    <div id="inventory">
+      <div class="inv-slot" id="inv-0"></div>
+      <div class="inv-slot" id="inv-1"></div>
+    </div>
     <div id="stamina-wrap"><div id="stamina-fill"></div></div>
     <div id="chat-log"></div>
     <div id="chat-input-wrap" class="hidden">
       <input id="chat-input" maxlength="200" placeholder="say something… (Enter to send, Esc to close)" autocomplete="off" />
     </div>
-    <div id="proximity-indicator" class="hidden"></div>
-    <div id="hunted-hud" class="hidden">
-      <div id="hunted-icon">&#x1F3F9;</div>
-      <div id="hunted-label">HUNTED</div>
-      <div id="hunted-timer">5:00</div>
-    </div>
-    <div id="swap-hint" class="hidden">Press <b>F</b> to swap with an ally (nearby)</div>
-    <div id="pickup-hint" class="hidden">Press <b>E</b> to pick up flashlight</div>
+    <div id="interact-hint" class="hidden"></div>
     <div id="flashlight-indicator" class="hidden">&#x1F526; FLASHLIGHT</div>
     <div id="hint">click to look around</div>
     <div id="touch-ui" class="hidden">
       <button id="touch-sprint" class="ui-block">RUN</button>
+      <button id="touch-interact" class="ui-block">USE</button>
       <button id="touch-chat" class="ui-block">CHAT</button>
     </div>
   </div>
@@ -107,19 +111,26 @@
   <div id="pause" class="screen hidden translucent">
     <div class="menu-card">
       <h2>paused*</h2>
-      <p class="dim small">*the rooms don't pause. neither does he.</p>
+      <p class="dim small">*the company does not pause. neither do they.</p>
       <button id="resume-btn" class="primary">RESUME</button>
       <button id="pause-settings-btn">settings</button>
-      <button id="copy-code-btn" class="hidden">copy room code</button>
-      <button id="leave-btn" class="danger">leave to menu</button>
+      <button id="copy-code-btn">copy crew code</button>
+      <button id="leave-btn" class="danger">abandon crew</button>
     </div>
   </div>
 
   <!-- Death -->
-  <div id="death" class="screen hidden">
-    <h1 id="death-title">HE GOT YOU</h1>
-    <p class="dim">you wake up somewhere else. somewhere worse.</p>
-    <button id="respawn-btn" class="primary">GET UP</button>
+  <div id="death" class="screen hidden translucent">
+    <h1 id="death-title">YOU DIED</h1>
+    <p id="death-sub" class="dim">your body remains company property. reviving in orbit…</p>
+  </div>
+
+  <!-- Fired -->
+  <div id="fired" class="screen hidden">
+    <h1 id="fired-title">TERMINATED</h1>
+    <p class="dim">profit quota was not met. your crew has been… let go.</p>
+    <p id="fired-stats" class="dim small"></p>
+    <p class="dim small">a new contract begins shortly.</p>
   </div>
 
   <div id="toasts"></div>

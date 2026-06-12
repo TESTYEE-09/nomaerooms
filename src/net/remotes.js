@@ -152,7 +152,7 @@ class Avatar {
     this.info = info;
     this.group = new THREE.Group();
 
-    const model = createHazmatModel(new THREE.Color(info.color || '#7da2ff').getHex());
+    const model = createHazmatModel(new THREE.Color(info.color || '#e8842c').getHex());
     this.model = model.group;
     this._leftArm = model.leftArm;
     this._rightArm = model.rightArm;
@@ -186,6 +186,7 @@ class Avatar {
       this.group.position.set(msg.p[0], 0, msg.p[1]);
       this.initialized = true;
     }
+    this.group.visible = !msg.dead;
     this.from.copy(this.group.position);
     this.to.set(msg.p[0], msg.y || 0, msg.p[1]);
     this.lerpT = 0;

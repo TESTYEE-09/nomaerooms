@@ -1,6 +1,6 @@
 // Persisted user settings (localStorage).
 
-const KEY = 'nomaerooms.settings.v2';
+const KEY = 'nomaelethal.settings.v1';
 
 const DEFAULTS = {
   name: '',
@@ -9,10 +9,6 @@ const DEFAULTS = {
   volume: 0.8,        // master
   musicVolume: 0.6,
   fov: 75,
-  micEnabled: true,
-  micVolume: 1.0,
-  clarkVolume: 0.8,
-  clarkAIEnabled: true,
 };
 
 export const settings = { ...DEFAULTS };

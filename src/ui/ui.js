@@ -4,10 +4,10 @@
 import './styles.css';
 import { settings, saveSettings } from '../core/settings.js';
 import { IS_TOUCH } from '../core/input.js';
+import { normalizeRoomCode } from '../core/utils.js';
 
 export class UI {
   constructor() {
-    // Elements are queried lazily via getters to handle deferred module timing
     this._elCache = {};
     const $ = (id) => document.getElementById(id);
     const self = this;
@@ -24,13 +24,14 @@ export class UI {
     });
 
     // callbacks set by main
-    this.onPlay = null;
+    this.onHost = null;
+    this.onJoin = null;       // (code)
     this.onResume = null;
     this.onLeave = null;
-    this.onRespawn = null;
     this.onChatSend = null;
     this.onSettingsChanged = null;
-    this.onAnyClick = null; // for audio unlock / music
+    this.onAnyClick = null;
+    this.onInteractTouch = null;
 
     this._settingsReturnTo = 'menu';
     this._wire();
@@ -44,7 +45,16 @@ export class UI {
 
     e.hostBtn.addEventListener('click', () => {
       this._captureName();
-      this.onPlay?.();
+      this.onHost?.();
+    });
+    e.joinBtn.addEventListener('click', () => {
+      this._captureName();
+      const code = normalizeRoomCode(e.joinCode.value);
+      if (code.length < 4) { this.showMenu('enter the 6-letter crew code'); return; }
+      this.onJoin?.(code);
+    });
+    e.joinCode.addEventListener('input', () => {
+      e.joinCode.value = normalizeRoomCode(e.joinCode.value);
     });
 
     // settings
@@ -54,11 +64,6 @@ export class UI {
       e.setSens.value = settings.sensitivity; e.sensVal.textContent = settings.sensitivity.toFixed(2);
       e.setVol.value = settings.volume; e.volVal.textContent = Math.round(settings.volume * 100) + '%';
       e.setMusic.value = settings.musicVolume; e.musicVal.textContent = Math.round(settings.musicVolume * 100) + '%';
-      e.setMicEnabled.checked = settings.micEnabled;
-      e.setMicVol.value = settings.micVolume; e.micVolVal.textContent = Math.round(settings.micVolume * 100) + '%';
-      e.setClarkVol.value = settings.clarkVolume; e.clarkVolVal.textContent = Math.round(settings.clarkVolume * 100) + '%';
-      e.setMicVol.closest('label').style.opacity = settings.micEnabled ? '1' : '0.4';
-      e.setClarkAiEnabled.checked = settings.clarkAIEnabled;
     };
     const openSettings = (from) => {
       this._settingsReturnTo = from;
@@ -74,15 +79,11 @@ export class UI {
       settings.sensitivity = +e.setSens.value;
       settings.volume = +e.setVol.value;
       settings.musicVolume = +e.setMusic.value;
-      settings.micEnabled = e.setMicEnabled.checked;
-      settings.micVolume = +e.setMicVol.value;
-      settings.clarkVolume = +e.setClarkVol.value;
-      settings.clarkAIEnabled = e.setClarkAiEnabled.checked;
       saveSettings();
       syncSettingsUI();
       this.onSettingsChanged?.();
     };
-    for (const el of [e.setQuality, e.setFov, e.setSens, e.setVol, e.setMusic, e.setMicEnabled, e.setMicVol, e.setClarkVol, e.setClarkAiEnabled]) {
+    for (const el of [e.setQuality, e.setFov, e.setSens, e.setVol, e.setMusic]) {
       el.addEventListener('input', onChange);
     }
 
@@ -94,8 +95,6 @@ export class UI {
     };
     e.copyCodeBtn.addEventListener('click', copy);
     e.roomChip.addEventListener('click', copy);
-
-    e.respawnBtn.addEventListener('click', () => this.onRespawn?.());
 
     // chat input
     e.chatInput.addEventListener('keydown', (ev) => {
@@ -112,6 +111,7 @@ export class UI {
     if (IS_TOUCH) {
       e.touchUi.classList.remove('hidden');
       e.touchChat.addEventListener('click', () => this.openChat());
+      e.touchInteract.addEventListener('click', () => this.onInteractTouch?.());
     }
   }
 
@@ -121,12 +121,12 @@ export class UI {
     saveSettings();
   }
   playerName() {
-    return this.el.nameInput.value.trim().slice(0, 16) || 'lost one';
+    return this.el.nameInput.value.trim().slice(0, 16) || 'employee';
   }
 
   // ---- screens ----
   _show(name) {
-    for (const s of ['loading', 'menu', 'settings', 'pause', 'death']) {
+    for (const s of ['loading', 'menu', 'settings', 'pause', 'death', 'fired']) {
       this.el[s].classList.toggle('hidden', s !== name);
     }
   }
@@ -149,66 +149,69 @@ export class UI {
   }
   showPause() { this._show('pause'); }
   hideOverlays() { this._show('none'); }
-  showDeath() { this._show('death'); }
+  showDeath(byKind) {
+    this._show('death');
+    const subs = {
+      crawler: 'something fast found you in the dark.',
+      stalker: 'you never saw it. that was the problem.',
+      hound: 'it heard you running.',
+      takeoff: 'the ship left without you.',
+    };
+    this.el.deathSub.textContent = (subs[byKind] || 'your body remains company property.') + ' reviving in orbit…';
+  }
+  showFired(stats) {
+    this._show('fired');
+    this.el.firedStats.textContent = stats || '';
+  }
   setBusy(b) {
     this.el.hostBtn.disabled = b;
-    if (this.el.joinBtn) this.el.joinBtn.disabled = b;
-    if (b) { this.el.menuError.classList.add('hidden'); }
+    this.el.joinBtn.disabled = b;
+    if (b) this.el.menuError.classList.add('hidden');
   }
 
   // ---- HUD ----
-  setPlayers(n) { this.el.playersChip.textContent = n + (n === 1 ? ' lost' : ' lost together'); }
+  setPlayers(n) { this.el.playersChip.textContent = n + ' employed'; }
   setStamina(frac) {
     this.el.staminaWrap.classList.toggle('visible', frac < 0.999);
     this.el.staminaFill.style.width = (frac * 100) + '%';
     this.el.staminaFill.classList.toggle('low', frac < 0.3);
   }
-  setProximity(nearby) {
-    const el = this.el.proximityIndicator;
-    if (!el) return;
-    if (!nearby.length) { el.classList.add('hidden'); return; }
-    el.classList.remove('hidden');
-    el.textContent = nearby.map((n) => `${n.name} nearby`).join(' · ');
+  setStatus({ day, daysLeft, quota, sold, money, clock, landed }) {
+    this.el.hudDay.textContent = 'DAY ' + day;
+    this.el.hudQuota.textContent = `$${sold} / $${quota} · ${daysLeft}d`;
+    this.el.hudMoney.textContent = '$' + money;
+    if (landed && clock !== null) {
+      this.el.hudClock.classList.remove('hidden');
+      const h = Math.floor(clock), m = Math.floor((clock - h) * 60);
+      this.el.hudClock.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      this.el.hudClock.classList.toggle('late', clock >= 21);
+    } else {
+      this.el.hudClock.classList.add('hidden');
+    }
+  }
+  setShipValue(v) {
+    this.el.shipChip.classList.toggle('hidden', v <= 0);
+    this.el.shipChip.textContent = 'ship: $' + v;
+  }
+  setInventory(slots) {
+    for (let i = 0; i < 2; i++) {
+      const el = document.getElementById('inv-' + i);
+      const it = slots[i];
+      el.classList.toggle('filled', !!it);
+      el.textContent = it ? `${it.type.name} $${it.value}` : '';
+    }
+  }
+  setInteractHint(text) {
+    const el = this.el.interactHint;
+    el.classList.toggle('hidden', !text);
+    if (text) el.innerHTML = text;
   }
   setHint(text) {
     this.el.hint.textContent = text || '';
     this.el.hint.style.opacity = text ? 1 : 0;
   }
-
-  // ---- hunted mode ----
-  setHuntedState(state) {
-    const hud = this.el.huntedHud;
-    if (!hud) return;
-    if (!state) { hud.classList.add('hidden'); return; }
-    hud.classList.remove('hidden');
-    if (state.isHunted) {
-      this.el.huntedIcon.textContent = '\u{1F3F9}';
-      this.el.huntedLabel.textContent = 'YOU ARE HUNTED';
-      this.el.huntedLabel.style.color = '#e04040';
-    } else {
-      this.el.huntedIcon.textContent = '\u{1F6E1}';
-      this.el.huntedLabel.textContent = 'PROTECT THE HUNTED';
-      this.el.huntedLabel.style.color = '#40c0e0';
-    }
-    const m = Math.floor(state.timer / 60);
-    const s = Math.floor(state.timer % 60);
-    this.el.huntedTimer.textContent = `${m}:${String(s).padStart(2, '0')}`;
-  }
-
-  showSwapHint(show) {
-    this.el.swapHint.classList.toggle('hidden', !show);
-  }
-
   setFlashlight(on) {
-    const el = this.el.flashlightIndicator;
-    if (!el) return;
-    el.classList.toggle('hidden', !on);
-  }
-
-  showPickupHint(show) {
-    const el = this.el.pickupHint;
-    if (!el) return;
-    el.classList.toggle('hidden', !show);
+    this.el.flashlightIndicator.classList.toggle('hidden', !on);
   }
 
   // ---- chat ----
@@ -223,9 +226,9 @@ export class UI {
     this.el.chatInput.blur();
     this.el.canvas.focus?.();
   }
-  addChat(name, text, { system = false, proximity = 1, ai = false } = {}) {
+  addChat(name, text, { system = false, proximity = 1 } = {}) {
     const div = document.createElement('div');
-    div.className = 'chat-line' + (system ? ' system' : '') + (ai ? ' ai' : '');
+    div.className = 'chat-line' + (system ? ' system' : '');
     if (system) div.textContent = text;
     else {
       const b = document.createElement('b');
@@ -248,9 +251,6 @@ export class UI {
   }
 
   scareFlash() {
-    this.el.canvas.classList.remove('scare');
-    void this.el.canvas.offsetWidth;
-    this.el.canvas.classList.add('scare');
     const overlay = this.el.scareOverlay;
     if (overlay) {
       overlay.classList.remove('active');

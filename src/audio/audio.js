@@ -453,4 +453,186 @@ export class AudioEngine {
   stopHallucinations() {
     this.stopTinnitus();
   }
+
+  // ---- ship ----
+
+  /** engine rumble during landing / takeoff; amount 0..1 */
+  setRumble(amount) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!this._rumble) {
+      const src = ctx.createBufferSource();
+      src.buffer = this._noiseBuffer(3, 'brown');
+      src.loop = true;
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 110;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      src.connect(f).connect(g).connect(this.sfx);
+      src.start();
+      const sub = ctx.createOscillator();
+      sub.type = 'sine';
+      sub.frequency.value = 31;
+      const sg = ctx.createGain();
+      sg.gain.value = 0;
+      sub.connect(sg).connect(this.sfx);
+      sub.start();
+      this._rumble = { g, sg };
+    }
+    this._rumble.g.gain.setTargetAtTime(amount * 1.1, ctx.currentTime, 0.25);
+    this._rumble.sg.gain.setTargetAtTime(amount * 0.25, ctx.currentTime, 0.25);
+  }
+
+  doorHiss() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const n = ctx.createBufferSource();
+    n.buffer = this._noiseBuffer(0.8);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(2600, t0);
+    f.frequency.exponentialRampToValueAtTime(700, t0 + 0.7);
+    f.Q.value = 1.1;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.16, t0 + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.75);
+    n.connect(f).connect(g).connect(this.sfx);
+    n.start(t0);
+  }
+
+  alarmBeep() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    for (const off of [0, 0.45]) {
+      const o = ctx.createOscillator();
+      o.type = 'square';
+      o.frequency.value = 720;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0 + off);
+      g.gain.exponentialRampToValueAtTime(0.09, t0 + off + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + off + 0.3);
+      o.connect(g).connect(this.sfx);
+      o.start(t0 + off);
+      o.stop(t0 + off + 0.35);
+    }
+  }
+
+  // ---- scrap ----
+
+  pickup() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(420, t0);
+    o.frequency.exponentialRampToValueAtTime(840, t0 + 0.07);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.12, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.14);
+    o.connect(g).connect(this.sfx);
+    o.start(t0);
+    o.stop(t0 + 0.16);
+  }
+
+  dropThud() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(160, t0);
+    o.frequency.exponentialRampToValueAtTime(55, t0 + 0.1);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.2, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.16);
+    o.connect(g).connect(this.sfx);
+    o.start(t0);
+    o.stop(t0 + 0.18);
+  }
+
+  sellChime() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    [660, 880, 1100].forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0 + i * 0.09);
+      g.gain.exponentialRampToValueAtTime(0.1, t0 + i * 0.09 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + i * 0.09 + 0.5);
+      o.connect(g).connect(this.sfx);
+      o.start(t0 + i * 0.09);
+      o.stop(t0 + i * 0.09 + 0.55);
+    });
+  }
+
+  bellDing() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = 1900;
+    const o2 = ctx.createOscillator();
+    o2.type = 'sine';
+    o2.frequency.value = 2850;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.16, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 1.1);
+    o.connect(g); o2.connect(g);
+    g.connect(this.sfx);
+    o.start(t0); o2.start(t0);
+    o.stop(t0 + 1.2); o2.stop(t0 + 1.2);
+  }
+
+  // ---- monsters ----
+
+  howl() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(160, t0);
+    o.frequency.linearRampToValueAtTime(340, t0 + 0.7);
+    o.frequency.linearRampToValueAtTime(220, t0 + 1.8);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 500;
+    f.Q.value = 4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.14, t0 + 0.3);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 2.1);
+    o.connect(f).connect(g).connect(this.sfx);
+    o.start(t0);
+    o.stop(t0 + 2.2);
+  }
+
+  roar() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t0 = ctx.currentTime;
+    const n = ctx.createBufferSource();
+    n.buffer = this._noiseBuffer(0.9);
+    n.playbackRate.value = 0.4;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(280, t0);
+    f.frequency.exponentialRampToValueAtTime(120, t0 + 0.8);
+    f.Q.value = 1.4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.9);
+    const w = ctx.createWaveShaper();
+    w.curve = this._distCurve(160);
+    n.connect(f).connect(w).connect(g).connect(this.sfx);
+    n.start(t0);
+  }
+
+  cash() {
+    if (!this.ctx) return;
+    this.sellChime();
+    this.chatPing();
+  }
 }

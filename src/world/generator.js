@@ -16,6 +16,12 @@ let SEED = 1;
 export function setSeed(s) { SEED = s | 0; }
 export function getSeed() { return SEED; }
 
+// Facility bounds in cell coords (inclusive). Edges are solid walls; cells
+// outside are impassable. The facility builder sets these per layout.
+let B = { x0: 0, z0: 0, x1: 33, z1: 33 };
+export function setBounds(x0, z0, x1, z1) { B = { x0, z0, x1, z1 }; }
+export function inBounds(x, z) { return x >= B.x0 && x <= B.x1 && z >= B.z0 && z <= B.z1; }
+
 // open "hall" field — > 0.60 means a large open room
 function hallField(x, z) {
   return valueNoise(x / 11, z / 11, SEED ^ 0x5eed);
@@ -31,11 +37,13 @@ export function isHall(x, z) {
 }
 
 export function wallE(x, z) {
+  if (x === B.x1 || x === B.x0 - 1) return true;   // boundary
   if (isHall(x, z) || isHall(x + 1, z)) return false;
   return hash3(x, z, 1, SEED) < density(x, z);
 }
 
 export function wallS(x, z) {
+  if (z === B.z1 || z === B.z0 - 1) return true;   // boundary
   if (isHall(x, z) || isHall(x, z + 1)) return false;
   return hash3(x, z, 2, SEED) < density(x, z);
 }
@@ -71,14 +79,9 @@ export function fixtureSteadiness(x, z) {
   return 0.55 + raw * 0.4;                 // steady
 }
 
-// almond water bottle on the floor of this cell (deterministic, like walls)
-export function bottle(x, z) {
-  if (pillar(x, z)) return false;
-  return hash3(x, z, 13, SEED) < 0.04;
-}
-
 // Can an agent walk from cell a to adjacent cell b? (4-connected)
 export function passable(x, z, nx, nz) {
+  if (!inBounds(nx, nz)) return false;
   if (pillar(nx, nz)) {
     // pillars only block the centre; cells with pillars are still passable
     // around the edges, so don't treat them as solid for nav — except halls

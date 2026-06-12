@@ -8,7 +8,7 @@ import {
   FLASHLIGHT_RANGE,
 } from '../core/config.js';
 import { clamp, damp, lerp } from '../core/utils.js';
-import { resolveCollision } from '../world/chunks.js';
+import { resolveCollision } from '../world/facility.js';
 
 export class PlayerController {
   constructor(camera, input, settingsRef) {
@@ -30,8 +30,11 @@ export class PlayerController {
     this.onFootstep = null;               // cb(isSprinting)
     this.moving = false;
     this.sprinting = false;
-    this.frozen = false;                  // during jumpscare
-    this.boostT = 0;                      // seconds of almond-water speed boost left
+    this.frozen = false;                  // during death / cutscenes
+    this.boostT = 0;                      // seconds of speed boost left
+    this.speedMul = 1;                    // carry-weight slowdown (set by main)
+    this.groundFn = null;                 // (x,z) -> floor world Y; null = 0
+    this.floorY = 0;                      // current floor height under the player
     this.hasFlashlight = false;
     this._scene = null;
     this._flashLight = null;
@@ -95,7 +98,8 @@ export class PlayerController {
     }
 
     if (this.boostT > 0) this.boostT -= dt;
-    const targetSpeed = (this.sprinting ? SPRINT_SPEED : WALK_SPEED) * (this.boostT > 0 ? 1.3 : 1);
+    const targetSpeed = (this.sprinting ? SPRINT_SPEED : WALK_SPEED)
+      * (this.boostT > 0 ? 1.3 : 1) * this.speedMul;
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     // camera-relative: forward is -Z in camera space
     const wx = (mv.x * cos - mv.y * sin) * targetSpeed;
@@ -139,8 +143,15 @@ export class PlayerController {
     const bobY = Math.abs(Math.sin(this.bobPhase)) * 0.05 * this.bobAmp * air;
     const bobX = Math.sin(this.bobPhase * 0.5) * 0.025 * this.bobAmp * air;
 
+    // floor follows terrain/ship/facility height; smooth small steps so
+    // walking a slope doesn't stutter
+    const wantFloor = this.groundFn ? this.groundFn(this.pos.x, this.pos.z) : 0;
+    this.floorY = Math.abs(wantFloor - this.floorY) > 1.5
+      ? wantFloor
+      : damp(this.floorY, wantFloor, 18, dt);
+
     const eyeX = this.pos.x + Math.cos(this.yaw) * bobX;
-    const eyeY = this.y + EYE_HEIGHT + bobY;
+    const eyeY = this.floorY + this.y + EYE_HEIGHT + bobY;
     const eyeZ = this.pos.z - Math.sin(this.yaw) * bobX;
     this.camera.position.set(eyeX, eyeY, eyeZ);
     this.camera.rotation.set(0, 0, 0);

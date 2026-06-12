@@ -1,12 +1,12 @@
 // Procedural PBR texture set, painted once at boot on canvases.
-// Wallpaper (green damask, grime, baseboard), damp carpet, ceiling tiles.
-// Each material gets color + roughness + normal maps derived from a height pass.
+// Industrial facility (concrete walls, scuffed metal floor, panel ceiling),
+// ship interior plating, and moon terrain ground.
 
 import * as THREE from 'three';
 import { mulberry32 } from '../core/utils.js';
 
 const SIZE = 1024;
-const DENS = (SIZE / 512) ** 2; // scale point-detail counts with resolution
+const DENS = (SIZE / 512) ** 2;
 
 function makeCanvas() {
   const c = document.createElement('canvas');
@@ -55,300 +55,138 @@ function noiseOverlay(ctx, rng, count, alpha, dark = true) {
   }
 }
 
-// ---- Classic Backrooms yellow wallpaper ------------------------------------
-// One texture tile = 2 m wide x WALL_H tall on the wall. A baseboard is painted
-// into the bottom ~7% so wall bases read as wood trim without extra geometry.
+// ---- Facility concrete wall (tile = 2 m wide × WALL_H tall) -----------------
 
-function damaskMotif(ctx, cx, cy, s, color) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.fillStyle = color;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = s * 0.06;
-  // central bud
-  ctx.beginPath();
-  ctx.ellipse(0, 0, s * 0.16, s * 0.30, 0, 0, Math.PI * 2);
-  ctx.fill();
-  // four curling fronds
-  for (const m of [1, -1]) {
-    ctx.beginPath();
-    ctx.moveTo(0, -s * 0.28);
-    ctx.bezierCurveTo(m * s * 0.42, -s * 0.46, m * s * 0.52, s * 0.05, m * s * 0.18, s * 0.34);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, s * 0.30);
-    ctx.bezierCurveTo(m * s * 0.30, s * 0.48, m * s * 0.44, s * 0.18, m * s * 0.30, -s * 0.05);
-    ctx.stroke();
-    // leaf dots
-    ctx.beginPath();
-    ctx.ellipse(m * s * 0.34, -s * 0.30, s * 0.07, s * 0.12, m * 0.7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(m * s * 0.30, s * 0.32, s * 0.06, s * 0.10, -m * 0.6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // crown flourish
-  ctx.beginPath();
-  ctx.ellipse(0, -s * 0.42, s * 0.08, s * 0.10, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function makeWallpaper() {
-  const rng = mulberry32(0x57a11);
+function makeConcreteWall() {
+  const rng = mulberry32(0xc0c7e7);
   const c = makeCanvas();
   const ctx = c.getContext('2d');
 
-  // base: iconic Backrooms yellow-beige with vertical tonal streaks
-  ctx.fillStyle = '#c9b06b';
+  ctx.fillStyle = '#6b6a62';
   ctx.fillRect(0, 0, SIZE, SIZE);
-  for (let x = 0; x < SIZE; x += 2) {
-    ctx.fillStyle = `rgba(${160 + rng() * 35 | 0},${140 + rng() * 30 | 0},${80 + rng() * 25 | 0},${0.06 + rng() * 0.09})`;
-    ctx.fillRect(x, 0, 2, SIZE);
+  // pour bands
+  for (let y = 0; y < SIZE; y += SIZE / 5) {
+    ctx.fillStyle = `rgba(${70 + rng() * 30 | 0},${70 + rng() * 28 | 0},${62 + rng() * 26 | 0},0.25)`;
+    ctx.fillRect(0, y, SIZE, SIZE / 5 - 4);
+    ctx.fillStyle = 'rgba(30,30,26,0.5)';
+    ctx.fillRect(0, y + SIZE / 5 - 4, SIZE, 3);
   }
+  noiseOverlay(ctx, rng, 18000, 0.13);
+  noiseOverlay(ctx, rng, 7000, 0.07, false);
 
-  // damask lattice: motifs on a diamond grid (4 cols, offset rows)
-  const step = SIZE / 4;
-  for (let row = -1; row < 10; row++) {
-    for (let col = -1; col < 5; col++) {
-      const ox = col * step + (row % 2 ? step / 2 : 0);
-      const oy = row * step * 0.62;
-      // layered motif: dark brown base, mid yellow-brown, faint highlight
-      damaskMotif(ctx, ox + 2, oy + 3, step * 0.52, 'rgba(90, 72, 38, 0.85)');
-      damaskMotif(ctx, ox, oy, step * 0.52, 'rgba(140, 115, 65, 0.9)');
-      damaskMotif(ctx, ox - 1, oy - 2, step * 0.46, 'rgba(200, 180, 120, 0.35)');
+  // form-tie holes on a grid
+  for (let gy = 0; gy < 3; gy++) {
+    for (let gx = 0; gx < 4; gx++) {
+      const x = (gx + 0.5) * SIZE / 4 + (rng() - 0.5) * 12;
+      const y = (gy + 0.5) * SIZE / 3 + (rng() - 0.5) * 12;
+      ctx.fillStyle = 'rgba(28,27,22,0.85)';
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(120,118,105,0.5)';
+      ctx.beginPath(); ctx.arc(x - 2, y - 2, 3, 0, Math.PI * 2); ctx.fill();
     }
   }
-
-  noiseOverlay(ctx, rng, 12000, 0.12);
-  noiseOverlay(ctx, rng, 4000, 0.06, false);
-
-  // damp grime climbing from the bottom
-  const g = ctx.createLinearGradient(0, SIZE, 0, SIZE * 0.55);
-  g.addColorStop(0, 'rgba(50, 42, 28, 0.5)');
-  g.addColorStop(1, 'rgba(50, 42, 28, 0)');
-  ctx.fillStyle = g;
+  // rust streaks dripping from tie holes and the top
+  for (let i = 0; i < 16; i++) {
+    const x = rng() * SIZE, y0 = rng() * SIZE * 0.6, h = 60 + rng() * 260;
+    const g = ctx.createLinearGradient(0, y0, 0, y0 + h);
+    g.addColorStop(0, `rgba(110,60,30,${0.18 + rng() * 0.2})`);
+    g.addColorStop(1, 'rgba(110,60,30,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y0, 3 + rng() * 10, h);
+  }
+  // grime rising from the floor
+  const g2 = ctx.createLinearGradient(0, SIZE, 0, SIZE * 0.6);
+  g2.addColorStop(0, 'rgba(24,22,16,0.55)');
+  g2.addColorStop(1, 'rgba(24,22,16,0)');
+  ctx.fillStyle = g2;
   ctx.fillRect(0, 0, SIZE, SIZE);
-  // occasional drip stains
-  for (let i = 0; i < 10; i++) {
-    const x = rng() * SIZE, w = 4 + rng() * 20, h = 50 + rng() * 200;
-    const dg = ctx.createLinearGradient(0, SIZE - h, 0, SIZE);
-    dg.addColorStop(0, 'rgba(55, 45, 25,0)');
-    dg.addColorStop(1, 'rgba(55, 45, 25,0.4)');
-    ctx.fillStyle = dg;
-    ctx.fillRect(x, SIZE - h, w, h);
+  // hazard stripe remnant at the very bottom
+  ctx.save();
+  ctx.globalAlpha = 0.28;
+  for (let x = -SIZE * 0.2; x < SIZE * 1.2; x += 64) {
+    ctx.fillStyle = '#8f7a1e';
+    ctx.beginPath();
+    ctx.moveTo(x, SIZE); ctx.lineTo(x + 32, SIZE); ctx.lineTo(x + 64, SIZE - 26); ctx.lineTo(x + 32, SIZE - 26);
+    ctx.closePath(); ctx.fill();
   }
+  ctx.restore();
 
-  // broad water damage patches
-  for (let i = 0; i < 4; i++) {
-    const x = rng() * SIZE, y = rng() * SIZE * 0.6, r = 50 + rng() * 120;
-    const wg = ctx.createRadialGradient(x, y, 0, x, y, r);
-    wg.addColorStop(0, 'rgba(100, 80, 40, 0.2)');
-    wg.addColorStop(0.7, 'rgba(80, 62, 30, 0.15)');
-    wg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = wg;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-
-  // baseboard: dark varnished wood strip at the bottom of the tile
-  const bbH = SIZE * 0.07;
-  ctx.fillStyle = '#4a3824';
-  ctx.fillRect(0, SIZE - bbH, SIZE, bbH);
-  for (let i = 0; i < 90; i++) {
-    ctx.fillStyle = `rgba(${35 + rng() * 35 | 0},${26 + rng() * 24 | 0},${16 + rng() * 18 | 0},0.35)`;
-    ctx.fillRect(rng() * SIZE, SIZE - bbH + rng() * bbH, 20 + rng() * 60, 1 + rng() * 2);
-  }
-  ctx.fillStyle = 'rgba(255,240,200,0.10)';
-  ctx.fillRect(0, SIZE - bbH, SIZE, 2);
-
-  // height map for the normal: motifs are slightly embossed, baseboard raised
+  // height map
   const hc = makeCanvas();
   const hctx = hc.getContext('2d');
-  hctx.fillStyle = '#808080';
+  hctx.fillStyle = '#888888';
   hctx.fillRect(0, 0, SIZE, SIZE);
-  for (let row = -1; row < 10; row++) {
-    for (let col = -1; col < 5; col++) {
-      const ox = col * step + (row % 2 ? step / 2 : 0);
-      const oy = row * step * 0.62;
-      damaskMotif(hctx, ox, oy, step * 0.52, 'rgba(255,255,255,0.5)');
-    }
+  for (let y = 0; y < SIZE; y += SIZE / 5) {
+    hctx.fillStyle = '#404040';
+    hctx.fillRect(0, y + SIZE / 5 - 4, SIZE, 3);
   }
-  const hrng = mulberry32(0xbeef);
-  noiseOverlay(hctx, hrng, 15000, 0.2);
-  hctx.fillStyle = '#b0b0b0';
-  hctx.fillRect(0, SIZE - bbH, SIZE, bbH);
-
-  // roughness: grime is glossier (damp), paper is matte
-  const rc = makeCanvas();
-  const rctx = rc.getContext('2d');
-  rctx.fillStyle = '#e8e8e8';
-  rctx.fillRect(0, 0, SIZE, SIZE);
-  const rg = rctx.createLinearGradient(0, SIZE, 0, SIZE * 0.55);
-  rg.addColorStop(0, 'rgba(110,110,110,0.8)');
-  rg.addColorStop(1, 'rgba(110,110,110,0)');
-  rctx.fillStyle = rg;
-  rctx.fillRect(0, 0, SIZE, SIZE);
-  rctx.fillStyle = '#707070';
-  rctx.fillRect(0, SIZE - bbH, SIZE, bbH);
+  noiseOverlay(hctx, mulberry32(0xbeef), 16000, 0.22);
 
   return {
     map: canvasTexture(c),
-    normalMap: canvasTexture(normalFromHeight(hc, 2.0), THREE.NoColorSpace),
-    roughnessMap: canvasTexture(rc, THREE.NoColorSpace),
+    normalMap: canvasTexture(normalFromHeight(hc, 1.6), THREE.NoColorSpace),
   };
 }
 
-// ---- Damp carpet (more realistic) -------------------------------------------
-// One tile = 2 m x 2 m. Simulates loop-pile commercial carpet with visible
-// fibre tufts, worn footpaths, water damage, and edge curling.
+// ---- Facility floor: scuffed sealed concrete with metal walkway strips ------
 
-function makeCarpet() {
-  const rng = mulberry32(0xca59e7);
+function makeFacilityFloor() {
+  const rng = mulberry32(0xf100f);
   const c = makeCanvas();
   const ctx = c.getContext('2d');
 
-  // base colour — deep greenish-brown (classic backrooms)
-  ctx.fillStyle = '#4a4434';
+  ctx.fillStyle = '#4e4c45';
   ctx.fillRect(0, 0, SIZE, SIZE);
+  noiseOverlay(ctx, rng, 26000, 0.14);
+  noiseOverlay(ctx, rng, 9000, 0.06, false);
 
-  // fibre tufts (small dashes in a slight directional grain)
-  for (let i = 0; i < 35000 * DENS; i++) {
-    const v = 50 + rng() * 45;
-    const bright = rng() < 0.5;
-    const r = bright ? v * 1.05 : v * 0.85;
-    const g = bright ? v : v * 0.88;
-    const b = bright ? v * 0.65 : v * 0.55;
-    ctx.fillStyle = `rgba(${r | 0},${g | 0},${b | 0},${0.2 + rng() * 0.35})`;
-    const fx = rng() * SIZE, fy = rng() * SIZE;
-    // fibre direction: slight horizontal bias
-    const flen = 1 + rng() * 3, fw = 1;
-    ctx.fillRect(fx, fy, flen, fw);
-  }
-
-  // pile direction grain (subtle horizontal streaks)
-  for (let y = 0; y < SIZE; y += 3) {
-    ctx.fillStyle = `rgba(80,74,56,${0.01 + rng() * 0.02})`;
-    ctx.fillRect(0, y, SIZE, 1);
-  }
-
-  // wide worn footpaths (lighter, flattened areas)
-  for (let i = 0; i < 18; i++) {
-    const x = rng() * SIZE, y = rng() * SIZE;
-    const rx = 40 + rng() * 120, ry = 10 + rng() * 40;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, rx);
-    g.addColorStop(0, 'rgba(130,124,100,0.12)');
-    g.addColorStop(0.5, 'rgba(100,94,80,0.08)');
+  // expansion joints — tile = 2 m, joint every metre
+  ctx.fillStyle = 'rgba(20,20,16,0.7)';
+  ctx.fillRect(0, SIZE / 2 - 2, SIZE, 4);
+  ctx.fillRect(SIZE / 2 - 2, 0, 4, SIZE);
+  // oil stains
+  for (let i = 0; i < 9; i++) {
+    const x = rng() * SIZE, y = rng() * SIZE, r = 28 + rng() * 80;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(14,13,10,${0.3 + rng() * 0.3})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(1, 0.3 + rng() * 0.3);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  // scuffs and drag marks
+  for (let i = 0; i < 60; i++) {
+    ctx.strokeStyle = `rgba(${30 + rng() * 40 | 0},${30 + rng() * 38 | 0},${26 + rng() * 30 | 0},${0.15 + rng() * 0.2})`;
+    ctx.lineWidth = 1 + rng() * 3;
     ctx.beginPath();
-    ctx.arc(0, 0, rx, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    const x = rng() * SIZE, y = rng() * SIZE, a = rng() * Math.PI;
+    const l = 30 + rng() * 130;
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+    ctx.stroke();
   }
 
-  // dark damp stains with feathery edges
-  for (let i = 0; i < 12; i++) {
-    const x = rng() * SIZE, y = rng() * SIZE;
-    const rd = 20 + rng() * 60;
-    ctx.fillStyle = `rgba(18,16,8,${0.15 + rng() * 0.25})`;
-    ctx.beginPath();
-    for (let a = 0; a < Math.PI * 2; a += 0.3) {
-      const r = rd * (0.6 + rng() * 0.5);
-      const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
-      a === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-    ctx.fill();
-    // inner darker core
-    const innerR = rd * 0.3;
-    ctx.fillStyle = `rgba(14,12,6,${0.1 + rng() * 0.15})`;
-    ctx.beginPath();
-    ctx.arc(x + (rng() - 0.5) * 10, y + (rng() - 0.5) * 10, innerR, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // mould spots (tiny dark clusters near damp areas)
-  for (let i = 0; i < 30; i++) {
-    const x = rng() * SIZE, y = rng() * SIZE;
-    for (let j = 0; j < 5 + rng() * 15; j++) {
-      ctx.fillStyle = `rgba(25,30,20,${0.4 + rng() * 0.5})`;
-      ctx.fillRect(x + (rng() - 0.5) * 12, y + (rng() - 0.5) * 12, 1, 1);
-    }
-  }
-
-  // edge curling / scuff marks near walls (mimics poor installation)
-  for (let side = 0; side < 4; side++) {
-    for (let i = 0; i < 10; i++) {
-      const pos = rng() * SIZE;
-      const sx = side === 0 ? 2 + rng() * 8 : side === 1 ? SIZE - 2 - rng() * 8 : rng() * SIZE;
-      const sy = side === 2 ? 2 + rng() * 8 : side === 3 ? SIZE - 2 - rng() * 8 : rng() * SIZE;
-      ctx.fillStyle = `rgba(28,24,16,${0.1 + rng() * 0.15})`;
-      ctx.fillRect(sx - 1, sy - 1, 3, 3);
-    }
-  }
-
-  // height map: fibre noise + worn paths are lower, damp areas slightly raised
   const hc = makeCanvas();
   const hctx = hc.getContext('2d');
   hctx.fillStyle = '#909090';
   hctx.fillRect(0, 0, SIZE, SIZE);
-  // fibre noise
-  const hrng = mulberry32(0xfeed);
-  for (let i = 0; i < 40000 * DENS; i++) {
-    const v = 60 + hrng() * 70;
-    hctx.fillStyle = `rgba(${v | 0},${v | 0},${v | 0},${0.3 + hrng() * 0.5})`;
-    hctx.fillRect(hrng() * SIZE, hrng() * SIZE, 1 + hrng() * 2, 1);
-  }
-  // worn paths are flatter (darker in height map)
-  for (let i = 0; i < 15; i++) {
-    const x = hrng() * SIZE, y = hrng() * SIZE, r = 30 + hrng() * 80;
-    const g = hctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(60,60,60,0.7)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    hctx.fillStyle = g;
-    hctx.save();
-    hctx.translate(x, y);
-    hctx.scale(1, 0.3 + hrng() * 0.3);
-    hctx.beginPath();
-    hctx.arc(0, 0, r, 0, Math.PI * 2);
-    hctx.fill();
-    hctx.restore();
-  }
+  hctx.fillStyle = '#383838';
+  hctx.fillRect(0, SIZE / 2 - 2, SIZE, 4);
+  hctx.fillRect(SIZE / 2 - 2, 0, 4, SIZE);
+  noiseOverlay(hctx, mulberry32(0xfee7), 22000, 0.25);
 
-  // roughness: damp areas are shinier, worn paths are smoother
+  // roughness: oil is glossy
   const rc = makeCanvas();
   const rctx = rc.getContext('2d');
-  rctx.fillStyle = '#e8e8e8';
+  rctx.fillStyle = '#dcdcdc';
   rctx.fillRect(0, 0, SIZE, SIZE);
-  // damp stain gloss
-  const rrng = mulberry32(0xd44b);
-  for (let i = 0; i < 12; i++) {
-    const x = rrng() * SIZE, y = rrng() * SIZE, r = 20 + rrng() * 60;
+  const rrng = mulberry32(0x011);
+  for (let i = 0; i < 9; i++) {
+    const x = rrng() * SIZE, y = rrng() * SIZE, r = 28 + rrng() * 80;
     const g = rctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(80,80,80,0.75)');
+    g.addColorStop(0, 'rgba(70,70,70,0.8)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     rctx.fillStyle = g;
-    rctx.beginPath();
-    rctx.arc(x, y, r, 0, Math.PI * 2);
-    rctx.fill();
-  }
-  // worn paths are slightly polished
-  for (let i = 0; i < 10; i++) {
-    const x = rrng() * SIZE, y = rrng() * SIZE, r = 40 + rrng() * 70;
-    const g = rctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(60,60,60,0.4)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    rctx.fillStyle = g;
-    rctx.save();
-    rctx.translate(x, y);
-    rctx.scale(1, 0.3 + rrng() * 0.3);
-    rctx.beginPath();
-    rctx.arc(0, 0, r, 0, Math.PI * 2);
-    rctx.fill();
-    rctx.restore();
+    rctx.beginPath(); rctx.arc(x, y, r, 0, Math.PI * 2); rctx.fill();
   }
 
   return {
@@ -358,91 +196,213 @@ function makeCarpet() {
   };
 }
 
-// ---- Ceiling tiles ----------------------------------------------------------
-// One texture tile = 2.4 m (4 drop tiles of 0.6 m).
+// ---- Facility ceiling: dark corrugated metal with cable runs ----------------
 
-function makeCeiling() {
-  const rng = mulberry32(0xce111);
+function makeFacilityCeiling() {
+  const rng = mulberry32(0xce1117);
   const c = makeCanvas();
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#8d8a78';
+  ctx.fillStyle = '#3b3d3c';
   ctx.fillRect(0, 0, SIZE, SIZE);
-  noiseOverlay(ctx, rng, 16000, 0.12);
-  noiseOverlay(ctx, rng, 6000, 0.08, false);
-
-  // tile pinholes
-  for (let i = 0; i < 2600 * DENS; i++) {
-    ctx.fillStyle = `rgba(40,38,30,${0.2 + rng() * 0.4})`;
-    const x = rng() * SIZE, y = rng() * SIZE;
-    ctx.fillRect(x, y, 1.5, 1.5);
+  // corrugation stripes
+  for (let x = 0; x < SIZE; x += 32) {
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(x, 0, 10, SIZE);
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fillRect(x + 20, 0, 8, SIZE);
   }
-  // water stains
-  for (let i = 0; i < 5; i++) {
-    const x = rng() * SIZE, y = rng() * SIZE, r = 24 + rng() * 70;
-    const g = ctx.createRadialGradient(x, y, r * 0.4, x, y, r);
-    g.addColorStop(0, 'rgba(96,80,44,0.18)');
-    g.addColorStop(0.85, 'rgba(96,72,36,0.34)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-  // T-bar grid (4 tiles per texture)
-  const q = SIZE / 4;
-  ctx.fillStyle = '#5c594c';
-  for (let i = 0; i <= 4; i++) {
-    ctx.fillRect(i * q - 2, 0, 4, SIZE);
-    ctx.fillRect(0, i * q - 2, SIZE, 4);
+  noiseOverlay(ctx, rng, 12000, 0.12);
+  // cable runs
+  for (let i = 0; i < 3; i++) {
+    const y = rng() * SIZE;
+    ctx.fillStyle = 'rgba(18,18,16,0.8)';
+    ctx.fillRect(0, y, SIZE, 7 + rng() * 5);
   }
 
   const hc = makeCanvas();
   const hctx = hc.getContext('2d');
-  hctx.fillStyle = '#909090';
+  hctx.fillStyle = '#808080';
   hctx.fillRect(0, 0, SIZE, SIZE);
-  hctx.fillStyle = '#404040';
-  for (let i = 0; i <= 4; i++) {
-    hctx.fillRect(i * q - 2, 0, 4, SIZE);
-    hctx.fillRect(0, i * q - 2, SIZE, 4);
+  for (let x = 0; x < SIZE; x += 32) {
+    hctx.fillStyle = '#a8a8a8';
+    hctx.fillRect(x, 0, 10, SIZE);
+    hctx.fillStyle = '#585858';
+    hctx.fillRect(x + 20, 0, 8, SIZE);
   }
-  const hrng = mulberry32(0x9a7);
-  noiseOverlay(hctx, hrng, 9000, 0.25);
 
   return {
     map: canvasTexture(c),
-    normalMap: canvasTexture(normalFromHeight(hc, 1.6), THREE.NoColorSpace),
+    normalMap: canvasTexture(normalFromHeight(hc, 1.8), THREE.NoColorSpace),
+  };
+}
+
+// ---- Ship interior plating ---------------------------------------------------
+
+function makeShipPanel() {
+  const rng = mulberry32(0x5417);
+  const c = makeCanvas();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#5e6166';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  // panel grid with rivets
+  const q = SIZE / 4;
+  for (let gy = 0; gy < 4; gy++) {
+    for (let gx = 0; gx < 4; gx++) {
+      const x = gx * q, y = gy * q;
+      ctx.fillStyle = `rgba(${88 + rng() * 18 | 0},${92 + rng() * 16 | 0},${98 + rng() * 14 | 0},0.5)`;
+      ctx.fillRect(x + 3, y + 3, q - 6, q - 6);
+      ctx.strokeStyle = 'rgba(20,22,26,0.8)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x + 2, y + 2, q - 4, q - 4);
+      for (const [rx, ry] of [[12, 12], [q - 12, 12], [12, q - 12], [q - 12, q - 12]]) {
+        ctx.fillStyle = 'rgba(30,32,36,0.9)';
+        ctx.beginPath(); ctx.arc(x + rx, y + ry, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(160,165,175,0.6)';
+        ctx.beginPath(); ctx.arc(x + rx - 1.5, y + ry - 1.5, 2, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+  noiseOverlay(ctx, rng, 9000, 0.1);
+  // worn smudges
+  for (let i = 0; i < 14; i++) {
+    const x = rng() * SIZE, y = rng() * SIZE, r = 20 + rng() * 60;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(28,30,30,${0.12 + rng() * 0.14})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  const hc = makeCanvas();
+  const hctx = hc.getContext('2d');
+  hctx.fillStyle = '#888888';
+  hctx.fillRect(0, 0, SIZE, SIZE);
+  for (let gy = 0; gy < 4; gy++) {
+    for (let gx = 0; gx < 4; gx++) {
+      hctx.strokeStyle = '#3a3a3a';
+      hctx.lineWidth = 3;
+      hctx.strokeRect(gx * q + 2, gy * q + 2, q - 4, q - 4);
+    }
+  }
+
+  return {
+    map: canvasTexture(c),
+    normalMap: canvasTexture(normalFromHeight(hc, 1.8), THREE.NoColorSpace),
+  };
+}
+
+// ---- Ship floor: diamond tread plate -----------------------------------------
+
+function makeTreadPlate() {
+  const rng = mulberry32(0x77ead);
+  const c = makeCanvas();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#46484a';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  noiseOverlay(ctx, rng, 9000, 0.12);
+  const hc = makeCanvas();
+  const hctx = hc.getContext('2d');
+  hctx.fillStyle = '#808080';
+  hctx.fillRect(0, 0, SIZE, SIZE);
+  const step = 42;
+  for (let y = 0; y < SIZE + step; y += step) {
+    for (let x = 0; x < SIZE + step; x += step) {
+      const ox = (Math.floor(y / step) % 2) * step / 2;
+      for (const rot of [0.6, -0.95]) {
+        ctx.save(); hctx.save();
+        ctx.translate(x + ox, y); hctx.translate(x + ox, y);
+        ctx.rotate(rot); hctx.rotate(rot);
+        ctx.fillStyle = 'rgba(120,124,128,0.55)';
+        ctx.fillRect(-11, -3, 22, 6);
+        hctx.fillStyle = '#c8c8c8';
+        hctx.fillRect(-11, -3, 22, 6);
+        ctx.restore(); hctx.restore();
+      }
+    }
+  }
+  return {
+    map: canvasTexture(c),
+    normalMap: canvasTexture(normalFromHeight(hc, 2.2), THREE.NoColorSpace),
+  };
+}
+
+// ---- Moon ground: barren dirt + gravel ----------------------------------------
+
+function makeGround() {
+  const rng = mulberry32(0x9a07d);
+  const c = makeCanvas();
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#7a786e';   // tinted per-moon by material colour
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  noiseOverlay(ctx, rng, 34000, 0.18);
+  noiseOverlay(ctx, rng, 12000, 0.1, false);
+  // patches of darker soil
+  for (let i = 0; i < 22; i++) {
+    const x = rng() * SIZE, y = rng() * SIZE, r = 26 + rng() * 110;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(30,28,22,${0.1 + rng() * 0.16})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  // gravel
+  for (let i = 0; i < 2400 * DENS; i++) {
+    const v = 90 + rng() * 90;
+    ctx.fillStyle = `rgba(${v | 0},${v * 0.96 | 0},${v * 0.85 | 0},${0.25 + rng() * 0.4})`;
+    ctx.fillRect(rng() * SIZE, rng() * SIZE, 1 + rng() * 3, 1 + rng() * 3);
+  }
+
+  const hc = makeCanvas();
+  const hctx = hc.getContext('2d');
+  hctx.fillStyle = '#8a8a8a';
+  hctx.fillRect(0, 0, SIZE, SIZE);
+  noiseOverlay(hctx, mulberry32(0x9a01), 26000, 0.3);
+
+  return {
+    map: canvasTexture(c),
+    normalMap: canvasTexture(normalFromHeight(hc, 1.0), THREE.NoColorSpace),
   };
 }
 
 // ---- Materials --------------------------------------------------------------
 
 export function buildMaterials() {
-  const wp = makeWallpaper();
-  const cp = makeCarpet();
-  const cl = makeCeiling();
+  const wall = makeConcreteWall();
+  const floor = makeFacilityFloor();
+  const ceil = makeFacilityCeiling();
+  const panel = makeShipPanel();
+  const tread = makeTreadPlate();
+  const ground = makeGround();
 
-  const wall = new THREE.MeshStandardMaterial({
-    map: wp.map,
-    normalMap: wp.normalMap,
+  const facWall = new THREE.MeshStandardMaterial({
+    map: wall.map, normalMap: wall.normalMap,
     normalScale: new THREE.Vector2(0.7, 0.7),
-    roughnessMap: wp.roughnessMap,
-    roughness: 1.0,
-    metalness: 0.0,
+    roughness: 0.95, metalness: 0.0,
   });
-
-  const carpet = new THREE.MeshStandardMaterial({
-    map: cp.map,
-    normalMap: cp.normalMap,
+  const facFloor = new THREE.MeshStandardMaterial({
+    map: floor.map, normalMap: floor.normalMap, roughnessMap: floor.roughnessMap,
+    normalScale: new THREE.Vector2(0.8, 0.8),
+    roughness: 1.0, metalness: 0.05,
+  });
+  const facCeiling = new THREE.MeshStandardMaterial({
+    map: ceil.map, normalMap: ceil.normalMap,
+    normalScale: new THREE.Vector2(0.6, 0.6),
+    roughness: 0.8, metalness: 0.35,
+  });
+  const shipWall = new THREE.MeshStandardMaterial({
+    map: panel.map, normalMap: panel.normalMap,
+    normalScale: new THREE.Vector2(0.8, 0.8),
+    roughness: 0.55, metalness: 0.55,
+  });
+  const shipFloor = new THREE.MeshStandardMaterial({
+    map: tread.map, normalMap: tread.normalMap,
     normalScale: new THREE.Vector2(0.9, 0.9),
-    roughnessMap: cp.roughnessMap,
-    roughness: 1.0,
-    metalness: 0.0,
+    roughness: 0.6, metalness: 0.5,
   });
-
-  const ceiling = new THREE.MeshStandardMaterial({
-    map: cl.map,
-    normalMap: cl.normalMap,
-    normalScale: new THREE.Vector2(0.5, 0.5),
-    roughness: 0.95,
-    metalness: 0.0,
+  const moonGround = new THREE.MeshStandardMaterial({
+    map: ground.map, normalMap: ground.normalMap,
+    normalScale: new THREE.Vector2(0.7, 0.7),
+    roughness: 1.0, metalness: 0.0,
   });
 
   // fluorescent diffuser: unlit, instance colors pushed past 1.0 drive both
@@ -452,5 +412,5 @@ export function buildMaterials() {
     color: 0x9a9a92, roughness: 0.5, metalness: 0.6,
   });
 
-  return { wall, carpet, ceiling, fixtureGlow, fixtureFrame };
+  return { facWall, facFloor, facCeiling, shipWall, shipFloor, moonGround, fixtureGlow, fixtureFrame };
 }

@@ -1,0 +1,44 @@
+name: Deploy NomaeLETHAL to GitHub Pages
+
+on:
+  push:
+    branches: [lethal]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages-deploy-lethal
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # Publishes into the lethal/ subfolder of gh-pages. keep_files keeps the
+      # main game (published at the root by deploy.yml) intact, and main's
+      # workflow needs keep_files too so it doesn't wipe this folder.
+      - name: Publish to gh-pages/lethal
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          destination_dir: lethal
+          keep_files: true

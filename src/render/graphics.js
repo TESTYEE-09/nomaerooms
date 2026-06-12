@@ -141,7 +141,7 @@ export class Graphics {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x050603);
 
-    this.camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.08, 140);
+    this.camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.08, 400);
 
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
@@ -165,9 +165,23 @@ export class Graphics {
     this.bloomPass.enabled = q.bloom;
     this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
-    this.scene.fog = new THREE.FogExp2(0x0a0d06, q.fogDensity);
+    if (!this.scene.fog) this.scene.fog = new THREE.FogExp2(0x0a0d06, 0.05);
     this._resize();
     return q;
+  }
+
+  // Environment per zone/time: fog colour + density and sky colour, smoothly
+  // interpolated (call every frame with the current targets).
+  setEnv({ fog, density, sky }, dt = 1) {
+    const k = Math.min(1, dt * 2.5);
+    if (!this.scene.fog) this.scene.fog = new THREE.FogExp2(fog, density);
+    this._fogTarget = this._fogTarget || new THREE.Color();
+    this._skyTarget = this._skyTarget || new THREE.Color();
+    this._fogTarget.set(fog);
+    this._skyTarget.set(sky);
+    this.scene.fog.color.lerp(this._fogTarget, k);
+    this.scene.fog.density += (density - this.scene.fog.density) * k;
+    this.scene.background.lerp(this._skyTarget, k);
   }
 
   _resize() {
