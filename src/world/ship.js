@@ -50,9 +50,48 @@ export class Ship {
     floor.position.y = -0.1;
     floor.receiveShadow = true;
     g.add(floor);
-    const ceil = new THREE.Mesh(new THREE.BoxGeometry(W, 0.2, D), wallMat);
-    ceil.position.y = H + 0.1;
-    g.add(ceil);
+    // ceiling, with a skylight hole over the middle of the cabin so the
+    // starfield (in orbit) or sky (on a moon) is visible from inside
+    const sky = { x0: -0.8, x1: 1.1, z0: -0.9, z1: 0.9 };
+    const mkCeil = (w, d, x, z) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, d), wallMat);
+      m.position.set(x, H + 0.1, z);
+      g.add(m);
+    };
+    mkCeil(W, sky.z0 + D / 2, 0, (-D / 2 + sky.z0) / 2);             // front strip
+    mkCeil(W, D / 2 - sky.z1, 0, (sky.z1 + D / 2) / 2);              // back strip
+    mkCeil(sky.x0 + W / 2, sky.z1 - sky.z0, (-W / 2 + sky.x0) / 2, (sky.z0 + sky.z1) / 2); // left strip
+    mkCeil(W / 2 - sky.x1, sky.z1 - sky.z0, (sky.x1 + W / 2) / 2, (sky.z0 + sky.z1) / 2);  // right strip
+
+    // skylight frame (hangs slightly into the cabin)
+    const frameMatSky = new THREE.MeshStandardMaterial({ color: 0x2a2e32, roughness: 0.6, metalness: 0.6 });
+    const cx = (sky.x0 + sky.x1) / 2, cz = (sky.z0 + sky.z1) / 2;
+    const fw = sky.x1 - sky.x0, fd = sky.z1 - sky.z0;
+    for (const [w, d, x, z] of [
+      [fw + 0.2, 0.1, cx, sky.z0], [fw + 0.2, 0.1, cx, sky.z1],
+      [0.1, fd + 0.2, sky.x0, cz], [0.1, fd + 0.2, sky.x1, cz],
+    ]) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(w, 0.18, d), frameMatSky);
+      f.position.set(x, H - 0.04, z);
+      g.add(f);
+    }
+
+    // glass pane sealing the hole — lets the real sky/stars show through
+    const glass = new THREE.Mesh(
+      new THREE.PlaneGeometry(fw, fd),
+      new THREE.MeshPhysicalMaterial({
+        color: 0x3a5a7a, transparent: true, opacity: 0.12, roughness: 0.05,
+        metalness: 0, side: THREE.DoubleSide, depthWrite: false,
+      })
+    );
+    glass.rotation.x = Math.PI / 2;
+    glass.position.set(cx, H + 0.08, cz);
+    g.add(glass);
+
+    // faint cool light spilling down from the skylight
+    const skyLight = new THREE.PointLight(0x6a8fd0, 0.6, 6, 1.6);
+    skyLight.position.set(cx, H - 0.3, cz);
+    g.add(skyLight);
 
     const mkWall = (w, h, d, x, y, z) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);

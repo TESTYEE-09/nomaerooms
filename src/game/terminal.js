@@ -46,8 +46,34 @@ export class Terminal {
     this.log.innerHTML = '';
     for (const l of BOOT) this.print(l);
     this._status();
+    const s = this.getState();
+    if (s.phase === 'orbit') {
+      this.print('');
+      this.print('— set a course —', 'ok');
+      this._printMoons();
+      if (s.routed === null) {
+        this.print('click a destination to set your course.', 'dim');
+      } else {
+        this.print('close this terminal (ESC) and pull the lever by the console to descend.', 'dim');
+      }
+    } else {
+      this.print('');
+      this.print('type HELP for commands.', 'dim');
+    }
     this.input.value = '';
     setTimeout(() => this.input.focus(), 30);
+  }
+
+  _printMoons() {
+    const s = this.getState();
+    MOONS.forEach((M, i) => {
+      const tag = i === COMPANY_IDX ? ' [SELL HERE]' : '';
+      const here = s.moonIdx === i && s.phase !== 'orbit' ? ' (you are here)' : '';
+      const routed = s.routed === i ? ' ◄ routed' : '';
+      this.printHTML(
+        `<span class="term-moon" data-moon="${i}">${M.name}</span>` +
+        ` — ${M.desc}${tag}${here}${routed}`);
+    });
   }
 
   hide() {
@@ -100,14 +126,7 @@ export class Terminal {
 
       case 'moons': {
         this.print('— destinations —');
-        MOONS.forEach((M, i) => {
-          const tag = i === COMPANY_IDX ? ' [SELL HERE]' : '';
-          const here = s.moonIdx === i && s.phase !== 'orbit' ? ' (you are here)' : '';
-          const routed = s.routed === i ? ' ◄ routed' : '';
-          this.printHTML(
-            `<span class="term-moon" data-moon="${i}">${M.name}</span>` +
-            ` — ${M.desc}${tag}${here}${routed}`);
-        });
+        this._printMoons();
         this.print('click a name or ROUTE <name>', 'dim');
         break;
       }
@@ -126,7 +145,8 @@ export class Terminal {
           break;
         }
         this.onRoute?.(idx);
-        this.print(`course set: ${MOONS[idx].name}. pull the lever to descend.`, 'ok');
+        this.print(`course set: ${MOONS[idx].name}.`, 'ok');
+        this.print('close this terminal (ESC) and pull the lever by the console to descend.', 'dim');
         break;
       }
 
