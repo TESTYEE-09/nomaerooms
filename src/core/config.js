@@ -36,7 +36,7 @@ export const WEAPON_PICKUP_DIST = 2.5;
 export const WEAPON_USER_COOLDOWN = 10;
 
 export const QUALITY = {
-  low:    { chunkRadius: 1, lights: 5,  shadowLights: 0, shadowMap: 512,  bloom: true, pixelRatio: 0.85, fogDensity: 0.075 },
-  medium: { chunkRadius: 2, lights: 8,  shadowLights: 2, shadowMap: 768,  bloom: true, pixelRatio: 1.0,  fogDensity: 0.055 },
-  high:   { chunkRadius: 2, lights: 12, shadowLights: 3, shadowMap: 1024, bloom: true, pixelRatio: 1.5,  fogDensity: 0.05 },
+  low:    { chunkRadius: 1, lights: 4,  shadowLights: 0, shadowMap: 256,  bloom: false, pixelRatio: 0.7,  fogDensity: 0.085 },
+  medium: { chunkRadius: 2, lights: 6,  shadowLights: 1, shadowMap: 512,  bloom: true,  pixelRatio: 1.0,  fogDensity: 0.06 },
+  high:   { chunkRadius: 2, lights: 10, shadowLights: 2, shadowMap: 768,  bloom: true,  pixelRatio: 1.25, fogDensity: 0.05 },
 };

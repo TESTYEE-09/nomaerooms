@@ -33,9 +33,13 @@ export class PlayerController {
     this.frozen = false;                  // during jumpscare
     this.boostT = 0;                      // seconds of almond-water speed boost left
     this.hasFlashlight = false;
+    this.hasGun = false;
     this._scene = null;
     this._flashLight = null;
     this._flashTarget = null;
+    this._gunModel = null;
+    this._muzzleFlash = null;
+    this._muzzleFlashTimer = 0;
   }
 
   initFlashlight(scene) {
@@ -59,6 +63,51 @@ export class PlayerController {
     scene.add(this._flashTarget);
     this._flashLight.target = this._flashTarget;
     scene.add(this._flashLight);
+  }
+
+  initGun(scene) {
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.3, metalness: 0.6 });
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 0.8, metalness: 0.0 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0x777777, roughness: 0.4, metalness: 0.5 });
+
+    this._gunModel = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.035, 0.1), bodyMat);
+    body.position.set(0, -0.03, -0.08);
+    this._gunModel.add(body);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.14, 6), bodyMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, -0.03, 0.02);
+    this._gunModel.add(barrel);
+
+    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.025, 8), accentMat);
+    cyl.rotation.x = Math.PI / 2;
+    cyl.position.set(0, -0.03, -0.04);
+    this._gunModel.add(cyl);
+
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.06, 0.02), gripMat);
+    grip.position.set(0, -0.08, -0.07);
+    this._gunModel.add(grip);
+
+    // muzzle flash light
+    this._muzzleFlash = new THREE.PointLight(0xffaa44, 0, 4);
+    this._muzzleFlash.position.set(0, -0.03, 0.1);
+    this._gunModel.add(this._muzzleFlash);
+
+    this._gunModel.visible = false;
+    this._gunModel.position.set(0.22, -0.18, -0.3);
+    this.camera.add(this._gunModel);
+  }
+
+  setGun(on) {
+    this.hasGun = on;
+    if (this._gunModel) this._gunModel.visible = on;
+  }
+
+  fireGun() {
+    if (!this._muzzleFlash) return;
+    this._muzzleFlash.intensity = 3;
+    this._muzzleFlashTimer = 0.08;
   }
 
   setFlashlight(on) {
@@ -153,6 +202,16 @@ export class PlayerController {
       this._flashLight.position.copy(this.camera.position).addScaledVector(fwd, 0.3);
       this._flashLight.position.y -= 0.15;
       this._flashTarget.position.copy(this.camera.position).addScaledVector(fwd, 6);
+    }
+
+    // muzzle flash decay
+    if (this._muzzleFlash && this._muzzleFlashTimer > 0) {
+      this._muzzleFlashTimer -= dt;
+      if (this._muzzleFlashTimer <= 0) {
+        this._muzzleFlash.intensity = 0;
+      } else {
+        this._muzzleFlash.intensity = 3 * (this._muzzleFlashTimer / 0.08);
+      }
     }
 
     // sprint FOV kick

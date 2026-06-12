@@ -76,6 +76,7 @@ export class ChunkManager {
   update(wx, wz, budget = 1) {
     const ccx = Math.floor(wx / CHUNK_SIZE);
     const ccz = Math.floor(wz / CHUNK_SIZE);
+    // throttle: only rebuild queue when player moves to a new chunk center
     if (ccx !== this._center.x || ccz !== this._center.z) {
       this._center = { x: ccx, z: ccz };
       // queue missing chunks, nearest first

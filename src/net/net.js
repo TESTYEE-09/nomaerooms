@@ -64,6 +64,7 @@ export class Net {
     this.onClosed = null;
     this.onHuntedState = null;
     this.onSwapRequest = null;
+    this.onSwapDenied = null;
     this.onSwapResult = null;
     this.onHuntedWin = null;
     this.onWeaponStun = null;
@@ -195,8 +196,12 @@ export class Net {
         this.onHuntedState?.(rest);
         break;
       case 'swap':
-        // guest -> host: request swap; host -> all: {from, to, huntedPos}
+        // guest -> host: request swap
         this.onSwapRequest?.(from);
+        break;
+      case 'swapDenied':
+        // host -> guest: swap rejected (on cooldown or no ally)
+        this.onSwapDenied?.(rest.reason);
         break;
       case 'swapResult':
         // host broadcasts swap result: {fromX, fromZ, toX, toZ, swapId}
@@ -304,6 +309,11 @@ export class Net {
   }
 
   /** Host confirms swap was applied */
+  sendSwapDenied(reason) {
+    if (!this.isHost || !this.ws) return;
+    this._send({ t: 'relay', m: 'swapDenied', reason });
+  }
+
   sendSwapResult(result) {
     if (!this.isHost || !this.ws) return;
     this._send({ t: 'relay', m: 'swapResult', ...result });

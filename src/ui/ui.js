@@ -265,6 +265,79 @@ export class UI {
     setTimeout(() => { t.style.transition = 'opacity 0.6s'; t.style.opacity = '0'; setTimeout(() => t.remove(), 700); }, 2600);
   }
 
+  // ---- radar ----
+  setRadarVisible(show) {
+    const w = this.el.radarWrap;
+    if (!w) return;
+    w.classList.toggle('hidden', !show);
+  }
+
+  updateRadar(px, pz, pyaw, dots) {
+    const c = this.el.radar;
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    const s = c.width;
+    const cx = s / 2, cy = s / 2;
+    const range = 30;
+    const scale = (s * 0.42) / range;
+
+    ctx.clearRect(0, 0, s, s);
+
+    // radar rings
+    ctx.strokeStyle = 'rgba(207, 193, 118, 0.12)';
+    ctx.lineWidth = 0.5;
+    for (let r = 1; r <= 3; r++) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, (r / 3) * s * 0.42, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // heading line
+    ctx.strokeStyle = 'rgba(207, 193, 118, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.sin(pyaw) * s * 0.42, cy - Math.cos(pyaw) * s * 0.42);
+    ctx.stroke();
+
+    for (const d of dots) {
+      const dx = (d.x - px) * scale;
+      const dz = (d.z - pz) * scale;
+      // rotate to player heading
+      const sin = Math.sin(pyaw), cos = Math.cos(pyaw);
+      const rx = dx * cos + dz * sin;
+      const ry = -dx * sin + dz * cos;
+      const dist = Math.hypot(rx, ry);
+      if (dist > s * 0.42) continue;
+
+      ctx.beginPath();
+      if (d.isClark) {
+        ctx.fillStyle = '#cc3333';
+        ctx.arc(cx + rx, cy - ry, 4, 0, Math.PI * 2);
+        ctx.shadowColor = 'rgba(200, 30, 30, 0.5)';
+        ctx.shadowBlur = 6;
+      } else if (d.isHunted) {
+        ctx.fillStyle = '#40c0e0';
+        ctx.arc(cx + rx, cy - ry, 3, 0, Math.PI * 2);
+        ctx.shadowColor = 'rgba(64, 192, 224, 0.5)';
+        ctx.shadowBlur = 4;
+      } else {
+        ctx.fillStyle = '#cfc176';
+        ctx.arc(cx + rx, cy - ry, 2.5, 0, Math.PI * 2);
+        ctx.shadowColor = 'rgba(207, 193, 118, 0.3)';
+        ctx.shadowBlur = 3;
+      }
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // center dot (player)
+    ctx.fillStyle = '#f2e7ad';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   scareFlash() {
     this.el.canvas.classList.remove('scare');
     void this.el.canvas.offsetWidth;

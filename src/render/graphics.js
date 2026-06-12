@@ -175,13 +175,15 @@ export class Graphics {
     if (!this._quality) return;
     if (factor <= 0) {
       this.bloomPass.enabled = false;
-      const pr = Math.min(devicePixelRatio || 1, 1.0);
+      this.renderer.shadowMap.enabled = false;
+      const pr = Math.min(devicePixelRatio || 1, 0.75);
       this.renderer.setPixelRatio(pr);
       this.renderer.setSize(innerWidth, innerHeight);
       this.composer.setSize(innerWidth * pr, innerHeight * pr);
-      this.scene.fog = new THREE.FogExp2(0x0a0d06, Math.max(0.1, this._fogDensity * 2));
+      this.scene.fog = new THREE.FogExp2(0x0a0d06, Math.max(0.12, this._fogDensity * 2.5));
     } else {
       this.bloomPass.enabled = this._quality?.bloom ?? true;
+      this.renderer.shadowMap.enabled = true;
       this._resize();
       this.scene.fog = new THREE.FogExp2(0x0a0d06, this._fogDensity);
     }

@@ -32,6 +32,7 @@ const input = new Input();
 const audio = new AudioEngine(settings);
 const player = new PlayerController(graphics.camera, input, settings);
 player.initFlashlight(graphics.scene);
+player.initGun(graphics.scene);
 const materials = buildMaterials();
 const chunks = new ChunkManager(graphics.scene, materials);
 const objects = new ObjectPlacer(graphics.scene);
@@ -148,6 +149,7 @@ function startGame(seed, code) {
   ui.setFlashlight(false);
   hasWeapon = false;
   weaponCooldown = 0;
+  player.setGun(false);
   ui.setWeapon(false);
 
   // build the whole initial radius in one go (loading is already shown)
@@ -167,6 +169,7 @@ function startGame(seed, code) {
   state = 'playing';
   ui.showGame(code);
   ui.setPlayers(net.playerCount());
+  ui.setRadarVisible(true);
   ui.addChat(null, net.isHost
     ? `room ${code} is open — share the code`
     : 'you noclipped in. find the others.', { system: true });
@@ -186,8 +189,10 @@ function leaveToMenu(message = '') {
   player.setFlashlight(false);
   ui.setFlashlight(false);
   hasWeapon = false;
+  player.setGun(false);
   ui.setWeapon(false);
   input.releaseLock();
+  ui.setRadarVisible(false);
   state = 'menu';
   ui.showMenu(message);
   audio.playMenuMusic();
@@ -244,24 +249,30 @@ net.onHuntedState = (state) => {
   huntedId = state.huntedId;
   huntedTimer = state.timer;
   swapReady = state.swapReady;
-  swapCooldownTimer = state.swapCooldown;
+  swapCooldownTimer = Math.max(swapCooldownTimer, state.swapCooldown);
   const isHunted = huntedId === net.myId;
   ui.setHuntedState({ isHunted, timer: huntedTimer });
 };
 
 net.onSwapRequest = (fromId) => {
   // host receives swap request from the hunted guest
-  processSwapRequest();
+  const denied = processSwapRequest();
+  if (denied) {
+    net.sendSwapDenied(denied);
+  }
+};
+
+net.onSwapDenied = (reason) => {
+  ui.toast(`swap denied: ${reason}`);
 };
 
 net.onSwapResult = (result) => {
-  // Host broadcasts swap with {fromX, fromZ, toX, toZ, swapId, allyId}
   if (result.swapId === net.myId) {
-    // we are the hunted — go to the ally's old spot (toX/toZ)
     player.teleport(result.toX, result.toZ);
+    ui.toast('You swapped places!');
   } else if (result.allyId === net.myId) {
-    // we are the ally — go to the hunted's old spot (fromX/fromZ)
     player.teleport(result.fromX, result.fromZ);
+    ui.toast('You swapped with the Hunted!');
   }
   swapCooldownTimer = HUNTED_SWAP_COOLDOWN;
   ui.addChat(null, 'Swap! You traded places.', { system: true });
@@ -340,9 +351,9 @@ function endHuntedWin() {
 /** Host processes a swap — the hunted player swaps with the nearest ally in range */
 function processSwapRequest() {
   if (!net.isHost) return;
-  if (swapCooldownTimer > 0) return;
-  if (state !== 'playing') return;
-  if (!huntedId) return;
+  if (swapCooldownTimer > 0) { return 'on cooldown'; }
+  if (state !== 'playing') return 'game not active';
+  if (!huntedId) return 'no hunted assigned';
 
   // find hunted position
   let huntedPos;
@@ -370,7 +381,7 @@ function processSwapRequest() {
     const d = Math.hypot(pos.x - huntedPos.x, pos.z - huntedPos.z);
     if (d < bestDist && d <= HUNTED_SWAP_RANGE) { bestDist = d; bestId = id; }
   }
-  if (!bestId) return;
+  if (!bestId) { return 'no ally in range'; }
 
   swapCooldownTimer = HUNTED_SWAP_COOLDOWN;
 
@@ -438,6 +449,7 @@ ui.onRespawn = () => {
   ui.setFlashlight(false);
   hasWeapon = false;
   weaponCooldown = 0;
+  player.setGun(false);
   ui.setWeapon(false);
   chunks.update(player.pos.x, player.pos.z, 999);
   fear = 0;
@@ -482,8 +494,10 @@ document.addEventListener('keydown', (e) => {
       if (d < WEAPON_PICKUP_DIST) {
         objects.removeGun(i);
         hasWeapon = true;
+        weaponCooldown = 0;
+        player.setGun(true);
         audio.click();
-        ui.toast('found a revolver');
+        ui.toast('found a revolver — press Q to fire');
         ui.setWeapon(true);
         break;
       }
@@ -496,9 +510,8 @@ document.addEventListener('keydown', (e) => {
       const d = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
       if (d < WEAPON_RANGE && gen.lineOfSight(player.pos.x, player.pos.z, clark.pos.x, clark.pos.z)) {
         e.preventDefault();
-        hasWeapon = false;
         weaponCooldown = WEAPON_USER_COOLDOWN;
-        ui.setWeapon(false);
+        player.fireGun();
         audio.weaponUse();
         if (net.isHost) {
           clark.stun(WEAPON_STUN_DURATION);
@@ -507,8 +520,13 @@ document.addEventListener('keydown', (e) => {
           net.sendWeaponStun();
         }
         audio.clarkStun();
+        ui.toast(`Clark stunned — ${WEAPON_USER_COOLDOWN}s cooldown`);
         ui.addChat(null, 'You shot Clark with the revolver!', { system: true });
+      } else {
+        ui.toast('Clark out of range or blocked');
       }
+    } else {
+      ui.toast('Clark is not nearby');
     }
   }
 
@@ -536,10 +554,22 @@ document.addEventListener('keydown', (e) => {
       ui.toast('only the Hunted can swap');
     } else if (!swapReady) {
       ui.toast(`swap recharging (${Math.ceil(swapCooldownTimer)}s)`);
-    } else if (net.isHost) {
-      processSwapRequest();
     } else {
-      net.sendSwapRequest();
+      // pre-check ally proximity before sending request
+      let nearAlly = false;
+      for (const [id, rp] of remotes.map) {
+        if (deadPeers.has(id)) continue;
+        const d = Math.hypot(player.pos.x - rp.group.position.x, player.pos.z - rp.group.position.z);
+        if (d <= HUNTED_SWAP_RANGE) { nearAlly = true; break; }
+      }
+      if (!nearAlly) {
+        ui.toast('no ally close enough to swap with');
+      } else if (net.isHost) {
+        const denied = processSwapRequest();
+        if (denied) ui.toast(`swap denied: ${denied}`);
+      } else {
+        net.sendSwapRequest();
+      }
     }
   }
 });
@@ -591,14 +621,13 @@ function frame() {
   // adaptive quality: track frame time, scale back when lagging
   const _ft = frame._ft || (frame._ft = { history: [], scaled: false, timer: 0 });
   _ft.history.push(dt * 1000);
-  if (_ft.history.length > 30) {
+  if (_ft.history.length > 15) {
     _ft.history.shift();
     const avg = _ft.history.reduce((a, b) => a + b, 0) / _ft.history.length;
-    if (avg > 45 && !_ft.scaled) { _ft.scaled = true; graphics.scaleQuality(0); }
-    else if (avg < 22 && _ft.scaled) { _ft.scaled = false; graphics.scaleQuality(1); }
-    if (_ft.scaled && avg < 22) { _ft.timer += dt; if (_ft.timer > 5) { _ft.scaled = false; graphics.scaleQuality(1); _ft.timer = 0; } }
-    else if (!_ft.scaled && avg > 45) { _ft.timer += dt; if (_ft.timer > 3) { _ft.scaled = true; graphics.scaleQuality(0); _ft.timer = 0; } }
-    else _ft.timer = 0;
+    if (avg > 33 && !_ft.scaled) { _ft.scaled = true; graphics.scaleQuality(0); _ft.timer = 0; }
+    else if (avg < 28 && _ft.scaled) { _ft.timer += dt; if (_ft.timer > 3) { _ft.scaled = false; graphics.scaleQuality(1); _ft.timer = 0; } }
+    else if (avg > 33 && _ft.scaled) { _ft.timer = 0; }
+    else if (!_ft.scaled) _ft.timer = 0;
   }
 
   // chunk budget: drain queue faster when many chunks are pending
@@ -688,19 +717,22 @@ function frame() {
   // hallucinations: audio events driven by fear
   if (state === 'playing') hallucinations.update(dt, fear, t);
 
-  // hunted mode: host ticks the timer, broadcasts state periodically
-  if (net.isHost && huntedStarted && huntedId) {
-    huntedTimer -= dt;
-    if (huntedTimer <= 0) {
-      huntedTimer = 0;
-      endHuntedWin();
+  // hunted mode: tick timer & cooldown locally (host authoritative, guest local)
+  if (huntedStarted && huntedId) {
+    if (net.isHost) {
+      huntedTimer -= dt;
+      if (huntedTimer <= 0) {
+        huntedTimer = 0;
+        endHuntedWin();
+      }
+      lastSwapTick += dt;
+      if (lastSwapTick >= 0.5) {
+        lastSwapTick = 0;
+        broadcastHunted();
+      }
     }
     swapCooldownTimer = Math.max(0, swapCooldownTimer - dt);
-    lastSwapTick += dt;
-    if (lastSwapTick >= 0.5) {
-      lastSwapTick = 0;
-      broadcastHunted();
-    }
+    swapReady = swapCooldownTimer <= 0;
   }
   // update swap hint for the hunted player (shows when near an ally)
   if (huntedId === net.myId && swapReady) {
@@ -716,12 +748,19 @@ function frame() {
   }
 
   // weapon cooldown
-  if (weaponCooldown > 0) weaponCooldown -= dt;
+  if (weaponCooldown > 0) {
+    weaponCooldown -= dt;
+    if (weaponCooldown <= 0) ui.toast('revolver ready to fire');
+  }
 
   // weapon use hint
   if (hasWeapon && state === 'playing') {
-    const canStun = clark.active && Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) < WEAPON_RANGE && gen.lineOfSight(player.pos.x, player.pos.z, clark.pos.x, clark.pos.z);
-    ui.showWeaponHint(canStun);
+    if (weaponCooldown > 0) {
+      ui.showWeaponHint(false);
+    } else {
+      const canStun = clark.active && Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z) < WEAPON_RANGE && gen.lineOfSight(player.pos.x, player.pos.z, clark.pos.x, clark.pos.z);
+      ui.showWeaponHint(canStun);
+    }
   } else {
     ui.showWeaponHint(false);
   }
@@ -780,6 +819,28 @@ function frame() {
 
   // HUD
   ui.setStamina(player.stamina / STAMINA_MAX);
+
+  // radar
+  {
+    const radarDots = [];
+    for (const [id, rp] of remotes.map) {
+      if (deadPeers.has(id)) continue;
+      const d = Math.hypot(rp.group.position.x - player.pos.x, rp.group.position.z - player.pos.z);
+      if (d < 30) {
+        radarDots.push({
+          x: rp.group.position.x, z: rp.group.position.z,
+          isClark: false, isHunted: id === huntedId,
+        });
+      }
+    }
+    if (clark.active) {
+      const cd = Math.hypot(clark.pos.x - player.pos.x, clark.pos.z - player.pos.z);
+      if (cd < 30) {
+        radarDots.push({ x: clark.pos.x, z: clark.pos.z, isClark: true, isHunted: false });
+      }
+    }
+    ui.updateRadar(player.pos.x, player.pos.z, player.yaw, radarDots);
+  }
 
   graphics.render(t);
 }
