@@ -589,21 +589,20 @@ function frame() {
   const t = clock.elapsedTime;
 
   // adaptive quality: track frame time, scale back when lagging
-  this._ft ||= { history: [], scaled: false, timer: 0 };
-  const ft = this._ft;
-  ft.history.push(dt * 1000);
-  if (ft.history.length > 30) {
-    ft.history.shift();
-    const avg = ft.history.reduce((a, b) => a + b, 0) / ft.history.length;
-    if (avg > 45 && !ft.scaled) { ft.scaled = true; graphics.scaleQuality(0); }
-    else if (avg < 22 && ft.scaled) { ft.scaled = false; graphics.scaleQuality(1); }
-    if (ft.scaled && avg < 22) { ft.timer += dt; if (ft.timer > 5) { ft.scaled = false; graphics.scaleQuality(1); ft.timer = 0; } }
-    else if (!ft.scaled && avg > 45) { ft.timer += dt; if (ft.timer > 3) { ft.scaled = true; graphics.scaleQuality(0); ft.timer = 0; } }
-    else ft.timer = 0;
+  const _ft = frame._ft || (frame._ft = { history: [], scaled: false, timer: 0 });
+  _ft.history.push(dt * 1000);
+  if (_ft.history.length > 30) {
+    _ft.history.shift();
+    const avg = _ft.history.reduce((a, b) => a + b, 0) / _ft.history.length;
+    if (avg > 45 && !_ft.scaled) { _ft.scaled = true; graphics.scaleQuality(0); }
+    else if (avg < 22 && _ft.scaled) { _ft.scaled = false; graphics.scaleQuality(1); }
+    if (_ft.scaled && avg < 22) { _ft.timer += dt; if (_ft.timer > 5) { _ft.scaled = false; graphics.scaleQuality(1); _ft.timer = 0; } }
+    else if (!_ft.scaled && avg > 45) { _ft.timer += dt; if (_ft.timer > 3) { _ft.scaled = true; graphics.scaleQuality(0); _ft.timer = 0; } }
+    else _ft.timer = 0;
   }
 
   // chunk budget: drain queue faster when many chunks are pending
-  const _budget = ft.scaled ? 3 : 1;
+  const _budget = _ft.scaled ? 3 : 1;
 
   const inGame = state === 'playing' || state === 'paused' || state === 'dead' || state === 'scare';
   if (!inGame) return;
