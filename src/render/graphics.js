@@ -130,7 +130,7 @@ export class Graphics {
   constructor(canvas) {
     // antialias off: the composer renders into an offscreen target, so canvas
     // MSAA never applies — it only wastes memory/bandwidth
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
