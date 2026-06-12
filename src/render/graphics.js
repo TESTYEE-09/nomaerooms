@@ -130,7 +130,11 @@ export class Graphics {
   constructor(canvas) {
     // antialias off: the composer renders into an offscreen target, so canvas
     // MSAA never applies — it only wastes memory/bandwidth
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
+    // NOTE: no powerPreference:'high-performance' — on some macOS GPUs that
+    // routes the WebGL surface to a layer the window compositor paints black
+    // (scene renders fine to a readback/capture but shows black on screen).
+    // preserveDrawingBuffer keeps the swapped buffer readable for the compositor.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
