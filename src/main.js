@@ -588,6 +588,23 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
+  // adaptive quality: track frame time, scale back when lagging
+  this._ft ||= { history: [], scaled: false, timer: 0 };
+  const ft = this._ft;
+  ft.history.push(dt * 1000);
+  if (ft.history.length > 30) {
+    ft.history.shift();
+    const avg = ft.history.reduce((a, b) => a + b, 0) / ft.history.length;
+    if (avg > 45 && !ft.scaled) { ft.scaled = true; graphics.scaleQuality(0); }
+    else if (avg < 22 && ft.scaled) { ft.scaled = false; graphics.scaleQuality(1); }
+    if (ft.scaled && avg < 22) { ft.timer += dt; if (ft.timer > 5) { ft.scaled = false; graphics.scaleQuality(1); ft.timer = 0; } }
+    else if (!ft.scaled && avg > 45) { ft.timer += dt; if (ft.timer > 3) { ft.scaled = true; graphics.scaleQuality(0); ft.timer = 0; } }
+    else ft.timer = 0;
+  }
+
+  // chunk budget: drain queue faster when many chunks are pending
+  const _budget = ft.scaled ? 3 : 1;
+
   const inGame = state === 'playing' || state === 'paused' || state === 'dead' || state === 'scare';
   if (!inGame) return;
 
@@ -597,7 +614,7 @@ function frame() {
   // world + player
   const colliders = chunks.collidersNear(player.pos.x, player.pos.z);
   player.update(dt, colliders);
-  chunks.update(player.pos.x, player.pos.z, 1);
+  chunks.update(player.pos.x, player.pos.z, _budget);
 
   // almond water: walk into a bottle to drink it
   if (state === 'playing' && chunks.drinkNear(player.pos.x, player.pos.z)) {

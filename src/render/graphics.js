@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { QUALITY } from '../core/config.js';
@@ -157,6 +156,7 @@ export class Graphics {
     window.addEventListener('resize', () => this._resize());
     this._quality = null;
     this._frame = 0;
+    this._fogDensity = 0.055;
   }
 
   applyQuality(name, fov) {
@@ -165,9 +165,26 @@ export class Graphics {
     this.bloomPass.enabled = q.bloom;
     this.camera.fov = fov;
     this.camera.updateProjectionMatrix();
-    this.scene.fog = new THREE.FogExp2(0x0a0d06, q.fogDensity);
+    this._fogDensity = q.fogDensity;
+    this.scene.fog = new THREE.FogExp2(0x0a0d06, this._fogDensity);
     this._resize();
     return q;
+  }
+
+  scaleQuality(factor) {
+    if (!this._quality) return;
+    if (factor <= 0) {
+      this.bloomPass.enabled = false;
+      const pr = Math.min(devicePixelRatio || 1, 1.0);
+      this.renderer.setPixelRatio(pr);
+      this.renderer.setSize(innerWidth, innerHeight);
+      this.composer.setSize(innerWidth * pr, innerHeight * pr);
+      this.scene.fog = new THREE.FogExp2(0x0a0d06, Math.max(0.1, this._fogDensity * 2));
+    } else {
+      this.bloomPass.enabled = this._quality?.bloom ?? true;
+      this._resize();
+      this.scene.fog = new THREE.FogExp2(0x0a0d06, this._fogDensity);
+    }
   }
 
   _resize() {
