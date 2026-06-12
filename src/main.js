@@ -823,8 +823,24 @@ window.__nl = { player, GS, net, monsters, scrap, facility, moonWorld, ship, gra
 // for the whole crew — keep ticking on a timer instead.
 setInterval(() => { if (document.hidden) frame(true); }, 50);
 
+// rAF driver. Guarded so we never run two overlapping chains (e.g. a deferred
+// callback firing at the same time as a visibilitychange restart). Note rAF
+// invokes its callback with a timestamp arg, so we must NOT pass `frame`
+// directly — that timestamp would be read as `fromTimer` and kill the chain.
+let rafScheduled = false;
+function scheduleFrame() {
+  if (rafScheduled) return;
+  rafScheduled = true;
+  requestAnimationFrame(() => { rafScheduled = false; frame(); });
+}
+// Hidden tabs may drop the pending rAF; restart the chain on return so the
+// game doesn't stay frozen on a single still frame.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { clock.getDelta(); scheduleFrame(); }
+});
+
 function frame(fromTimer) {
-  if (!fromTimer) requestAnimationFrame(frame);
+  if (!fromTimer) scheduleFrame();
   window.__nlF = (window.__nlF || 0) + 1;
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
@@ -1006,4 +1022,4 @@ function frame(fromTimer) {
 
   graphics.render(t);
 }
-frame();
+scheduleFrame();
