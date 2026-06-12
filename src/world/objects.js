@@ -176,42 +176,32 @@ function createFlashlightPickup() {
 
 function createGunPickup() {
   const g = new THREE.Group();
-  const metalMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.3, metalness: 0.7 });
-  const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.8, metalness: 0.0 });
-  const accentMat = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.4, metalness: 0.5 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.3, metalness: 0.6 });
+  const gripMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 0.8, metalness: 0.0 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: 0x777777, roughness: 0.4, metalness: 0.5 });
+  const s = 2.5;
+  g.scale.setScalar(s);
 
-  // barrel
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.018, 0.14, 6), metalMat);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.12), bodyMat);
+  body.position.y = 0.02;
+  g.add(body);
+
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.16, 6), bodyMat);
   barrel.rotation.x = Math.PI / 2;
-  barrel.position.set(0, 0.04, 0.07);
+  barrel.position.set(0, 0.02, 0.08);
   g.add(barrel);
 
-  // cylinder (revolver chamber)
-  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.035, 8), accentMat);
+  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.03, 8), accentMat);
   cyl.rotation.x = Math.PI / 2;
-  cyl.position.set(0, 0.04, 0);
+  cyl.position.set(0, 0.02, 0.005);
   g.add(cyl);
 
-  // frame / body
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.035, 0.06), metalMat);
-  frame.position.set(0, 0.04, -0.02);
-  g.add(frame);
-
-  // grip
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.055, 0.03), woodMat);
-  grip.position.set(0, 0.008, -0.035);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.07, 0.025), gripMat);
+  grip.position.set(0, -0.015, -0.04);
   g.add(grip);
 
-  // trigger guard
-  const guard = new THREE.Mesh(new THREE.TorusGeometry(0.012, 0.003, 4, 6), metalMat);
-  guard.rotation.y = Math.PI / 2;
-  guard.position.set(0, 0.025, 0);
-  guard.scale.set(1, 0.6, 1);
-  g.add(guard);
-
-  // glow
-  const glow = new THREE.PointLight(0x444466, 0.15, 1.0);
-  glow.position.set(0, 0.06, 0.08);
+  const glow = new THREE.PointLight(0x6666aa, 0.5, 3.0);
+  glow.position.set(0, 0.04, 0.06);
   g.add(glow);
 
   return g;
