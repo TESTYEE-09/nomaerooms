@@ -37,3 +37,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
           publish_branch: gh-pages
+          # the lethal branch publishes NomaeLETHAL into gh-pages/lethal/;
+          # don't wipe it when deploying the main game to the root
+          keep_files: true
