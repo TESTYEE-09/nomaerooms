@@ -141,6 +141,9 @@ export class Graphics {
     this.scene.background = new THREE.Color(0x050603);
 
     this.camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.08, 140);
+    // the camera must be part of the scene graph for objects parented to it
+    // (e.g. the held gun viewmodel) to be traversed and rendered
+    this.scene.add(this.camera);
 
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
@@ -179,7 +182,7 @@ export class Graphics {
       const pr = Math.min(devicePixelRatio || 1, 0.75);
       this.renderer.setPixelRatio(pr);
       this.renderer.setSize(innerWidth, innerHeight);
-      this.composer.setSize(innerWidth * pr, innerHeight * pr);
+      this.composer.setSize(innerWidth, innerHeight);
       this.scene.fog = new THREE.FogExp2(0x0a0d06, Math.max(0.12, this._fogDensity * 2.5));
     } else {
       this.bloomPass.enabled = this._quality?.bloom ?? true;
@@ -193,7 +196,7 @@ export class Graphics {
     const pr = Math.min(devicePixelRatio || 1, this._quality?.pixelRatio ?? 1.25);
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(innerWidth, innerHeight);
-    this.composer.setSize(innerWidth * pr, innerHeight * pr);
+    this.composer.setSize(innerWidth, innerHeight);
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
   }
