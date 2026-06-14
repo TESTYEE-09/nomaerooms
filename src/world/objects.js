@@ -1,7 +1,44 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { hash2 } from '../core/utils.js';
 import { CELL, CHUNK_SIZE, CHUNK_CELLS } from '../core/config.js';
 import * as gen from './generator.js';
+
+// Furniture used to be hundreds of individual meshes per chunk, each with its
+// own material — thousands of draw calls, the main FPS sink. Instead every
+// chunk's furniture is baked into two merged meshes (matte + metal) that share
+// these materials; per-mesh colour is carried in a vertex-colour attribute.
+const SHARED = {
+  matte: new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.0, vertexColors: true }),
+  metal: new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.6, vertexColors: true }),
+};
+const SHARED_SET = new Set([SHARED.matte, SHARED.metal]);
+
+// Flatten a freshly-built furniture Group into per-bucket geometry lists, baking
+// each mesh's (already tinted) colour into vertex colours so one material can
+// draw the whole chunk. Disposes the temporary meshes' geometry + materials.
+function bakeGroup(group, buckets) {
+  group.updateMatrixWorld(true);
+  group.traverse((m) => {
+    if (!m.isMesh) return;
+    const geo = m.geometry.clone();
+    geo.applyMatrix4(m.matrixWorld);
+    // keep only the attributes mergeGeometries needs to line up
+    for (const name of Object.keys(geo.attributes)) {
+      if (name !== 'position' && name !== 'normal' && name !== 'uv') geo.deleteAttribute(name);
+    }
+    const col = m.material.color || new THREE.Color(0x808080);
+    const n = geo.attributes.position.count;
+    const arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { arr[i * 3] = col.r; arr[i * 3 + 1] = col.g; arr[i * 3 + 2] = col.b; }
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    const bucket = (m.material.metalness ?? 0) > 0.3 ? 'metal' : 'matte';
+    (buckets[bucket] ||= []).push(geo);
+    m.geometry.dispose();
+    if (Array.isArray(m.material)) m.material.forEach((x) => x.dispose());
+    else m.material.dispose();
+  });
+}
 
 const woodMat = (c) => new THREE.MeshStandardMaterial({
   color: c, roughness: 0.7 + Math.random() * 0.15, metalness: 0.0,
@@ -262,6 +299,7 @@ export class ObjectPlacer {
     const x0 = ccx * CHUNK_CELLS, z0 = ccz * CHUNK_CELLS;
     const group = new THREE.Group();
     const placed = [];
+    const buckets = {};
 
     for (let lz = 0; lz < CHUNK_CELLS; lz++) {
       for (let lx = 0; lx < CHUNK_CELLS; lx++) {
@@ -362,9 +400,23 @@ export class ObjectPlacer {
           }
         });
 
-        group.add(obj);
+        // bake this object's meshes into the chunk's merged buckets
+        bakeGroup(obj, buckets);
         placed.push({ x: midX, z: midZ, type });
       }
+    }
+
+    // collapse each bucket into a single merged, shadow-casting mesh
+    for (const key of Object.keys(buckets)) {
+      const geos = buckets[key];
+      if (!geos.length) continue;
+      const merged = mergeGeometries(geos);
+      geos.forEach((g) => g.dispose());
+      if (!merged) continue;
+      const mesh = new THREE.Mesh(merged, SHARED[key]);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
     }
 
     return { group, placed };
@@ -386,8 +438,8 @@ export class ObjectPlacer {
       if (child.isMesh) {
         child.geometry?.dispose();
         if (child.material) {
-          if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
-          else child.material.dispose();
+          const mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach((m) => { if (!SHARED_SET.has(m)) m.dispose(); });
         }
       }
     });

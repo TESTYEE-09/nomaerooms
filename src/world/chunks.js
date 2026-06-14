@@ -106,6 +106,7 @@ export class ChunkManager {
         built++;
       }
     }
+    this._lastBuilt = built;        // build frames hitch; the FPS sampler skips them
     return this._buildQueue.length; // pending count (loading screen uses this)
   }
 

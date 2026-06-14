@@ -618,20 +618,24 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
-  // adaptive quality: track frame time, scale back when lagging
+  // adaptive quality: track frame time, scale back when lagging. Frames where a
+  // chunk was just built always hitch (synchronous merge) — sampling them would
+  // make quality yo-yo, so they're skipped.
   const _ft = frame._ft || (frame._ft = { history: [], scaled: false, timer: 0 });
-  _ft.history.push(dt * 1000);
-  if (_ft.history.length > 15) {
-    _ft.history.shift();
-    const avg = _ft.history.reduce((a, b) => a + b, 0) / _ft.history.length;
-    if (avg > 33 && !_ft.scaled) { _ft.scaled = true; graphics.scaleQuality(0); _ft.timer = 0; }
-    else if (avg < 28 && _ft.scaled) { _ft.timer += dt; if (_ft.timer > 3) { _ft.scaled = false; graphics.scaleQuality(1); _ft.timer = 0; } }
-    else if (avg > 33 && _ft.scaled) { _ft.timer = 0; }
-    else if (!_ft.scaled) _ft.timer = 0;
+  if (!chunks._lastBuilt) {
+    _ft.history.push(dt * 1000);
+    if (_ft.history.length > 15) {
+      _ft.history.shift();
+      const avg = _ft.history.reduce((a, b) => a + b, 0) / _ft.history.length;
+      if (avg > 33 && !_ft.scaled) { _ft.scaled = true; graphics.scaleQuality(0); _ft.timer = 0; }
+      else if (avg < 28 && _ft.scaled) { _ft.timer += dt; if (_ft.timer > 3) { _ft.scaled = false; graphics.scaleQuality(1); _ft.timer = 0; } }
+      else if (avg > 33 && _ft.scaled) { _ft.timer = 0; }
+      else if (!_ft.scaled) _ft.timer = 0;
+    }
   }
 
-  // chunk budget: drain queue faster when many chunks are pending
-  const _budget = _ft.scaled ? 3 : 1;
+  // chunk budget: keep it at one per frame so each build hitch stays small
+  const _budget = 1;
 
   const inGame = state === 'playing' || state === 'paused' || state === 'dead' || state === 'scare';
   if (!inGame) return;
