@@ -50,30 +50,38 @@ export const FAC_CELLS = 34;                  // bounded maze side, in cells
 // ---- moons ----
 // Catalogue used by terminal + world builder. companies values are seeds for
 // deterministic per-day scrap layouts.
+// per-moon entities: crawlers/stalkers/coils roam the facility, hounds/coilsOut
+// roam the surface. `maze` re-themes the generator + wall tint so every moon's
+// facility feels distinct: hall (open-room threshold, lower = more halls),
+// dMin/dAmp (corridor wall density), pillar (colonnade chance), tint (wall hue).
 export const MOONS = [
   {
-    id: 'vacant', name: 'VACANT', desc: 'quiet test site. low hazard.',
+    id: 'vacant', name: 'VACANT', desc: 'open test halls. low hazard.',
     fog: 0x788272, sky: 0x9aa593, ground: 0x5d6353, fogDay: 0.012,
     scrapMin: 8, scrapMax: 11, valueMul: 1.0,
-    crawlers: 1, stalkers: 0, hounds: 1, facDist: 64,
+    crawlers: 1, stalkers: 0, coils: 0, hounds: 1, coilsOut: 1, facDist: 64,
+    maze: { hall: 0.50, dMin: 0.10, dAmp: 0.14, pillar: 0.7, tint: 0xb9bec6, ceil: 3.8 },
   },
   {
-    id: 'marsh', name: 'MARSH', desc: 'waterlogged. the fog never lifts.',
+    id: 'marsh', name: 'MARSH', desc: 'tight flooded corridors. fog never lifts.',
     fog: 0x5e6d5a, sky: 0x6c7a66, ground: 0x44503c, fogDay: 0.028,
     scrapMin: 11, scrapMax: 15, valueMul: 1.15,
-    crawlers: 2, stalkers: 1, hounds: 1, facDist: 86,
+    crawlers: 2, stalkers: 1, coils: 1, hounds: 1, coilsOut: 1, facDist: 86,
+    maze: { hall: 0.72, dMin: 0.22, dAmp: 0.24, pillar: 0.45, tint: 0x6f8278, ceil: 3.0 },
   },
   {
-    id: 'rend', name: 'REND', desc: 'red dusk. high yield. do not linger.',
+    id: 'rend', name: 'REND', desc: 'red pillared ruin. high yield. do not linger.',
     fog: 0x4a2e28, sky: 0x57342a, ground: 0x3a2c26, fogDay: 0.02,
     scrapMin: 15, scrapMax: 20, valueMul: 1.45,
-    crawlers: 2, stalkers: 2, hounds: 2, facDist: 102,
+    crawlers: 2, stalkers: 2, coils: 2, hounds: 2, coilsOut: 2, facDist: 102,
+    maze: { hall: 0.58, dMin: 0.15, dAmp: 0.20, pillar: 0.92, tint: 0xa56a55, ceil: 4.2 },
   },
   {
     id: 'company', name: 'THE COMPANY', desc: 'sell your scrap. meet the quota.',
     fog: 0x6e6a5e, sky: 0x847e6c, ground: 0x55503f, fogDay: 0.015,
     scrapMin: 0, scrapMax: 0, valueMul: 1,
-    crawlers: 0, stalkers: 0, hounds: 0, facDist: 0,
+    crawlers: 0, stalkers: 0, coils: 0, hounds: 0, coilsOut: 0, facDist: 0,
+    maze: { hall: 0.60, dMin: 0.14, dAmp: 0.20, pillar: 0.8, tint: 0xa0a098, ceil: 3.4 },
   },
 ];
 export const COMPANY_IDX = 3;

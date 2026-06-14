@@ -5,6 +5,7 @@ import './styles.css';
 import { settings, saveSettings } from '../core/settings.js';
 import { IS_TOUCH } from '../core/input.js';
 import { normalizeRoomCode } from '../core/utils.js';
+import { saveLabel, hasSave } from '../game/save.js';
 
 export class UI {
   constructor() {
@@ -26,6 +27,7 @@ export class UI {
     // callbacks set by main
     this.onHost = null;
     this.onJoin = null;       // (code)
+    this.onContinue = null;   // resume a saved run
     this.onResume = null;
     this.onLeave = null;
     this.onChatSend = null;
@@ -46,6 +48,10 @@ export class UI {
     e.hostBtn.addEventListener('click', () => {
       this._captureName();
       this.onHost?.();
+    });
+    e.continueBtn.addEventListener('click', () => {
+      this._captureName();
+      this.onContinue?.();
     });
     e.joinBtn.addEventListener('click', () => {
       this._captureName();
@@ -140,7 +146,18 @@ export class UI {
     this.el.hud.classList.add('hidden');
     this.el.menuError.textContent = error;
     this.el.menuError.classList.toggle('hidden', !error);
+    this.refreshContinue();
     this.setBusy(false);
+  }
+  refreshContinue() {
+    const btn = this.el.continueBtn;
+    if (!btn) return;
+    if (hasSave()) {
+      btn.classList.remove('hidden');
+      btn.textContent = `CONTINUE — ${saveLabel()}`;
+    } else {
+      btn.classList.add('hidden');
+    }
   }
   showGame(roomCode) {
     this._show('none');
@@ -166,6 +183,7 @@ export class UI {
   setBusy(b) {
     this.el.hostBtn.disabled = b;
     this.el.joinBtn.disabled = b;
+    if (this.el.continueBtn) this.el.continueBtn.disabled = b;
     if (b) this.el.menuError.classList.add('hidden');
   }
 

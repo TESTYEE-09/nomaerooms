@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { SCRAP_TYPES, MOONS, FAC_OFF } from '../core/config.js';
+import { SCRAP_TYPES, MOONS, FAC_OFF, SHIP_W, SHIP_D } from '../core/config.js';
 import { mulberry32 } from '../core/utils.js';
 import * as facMod from '../world/facility.js';
 
@@ -63,6 +63,9 @@ export class ScrapManager {
    * facility's open cells plus a couple of surface finds near the bunker.
    */
   spawnForMoon(seed, moonIdx, day, facility, moonWorld) {
+    // preserve anything currently stowed in the ship across the rebuild, so a
+    // re-spawn (new moon, new day, late join) never deletes the crew's loot
+    this._captureShip();
     this.clear();
     const M = MOONS[moonIdx];
     if (!M.scrapMax) { this._appendCarryOver(); this._buildMeshes(); return; }
@@ -77,33 +80,34 @@ export class ScrapManager {
       return SCRAP_TYPES[0];
     };
 
-    const nOutside = Math.min(2, count);
-    const cells = facility.pickCells((seed ^ 0x5c4a9) | 0, count - nOutside);
+    // all scrap spawns *inside* the facility — never out on the surface
+    const cells = facility.pickCells((seed ^ 0x5c4a9) | 0, count);
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < cells.length; i++) {
       const t = pickType();
       const value = Math.round((t.v[0] + rng() * (t.v[1] - t.v[0])) * M.valueMul);
-      let pos, zone;
-      if (i < cells.length) {
-        const w = facMod.cellToWorld(cells[i].x, cells[i].z);
-        pos = new THREE.Vector3(
-          w.x + (rng() - 0.5) * 1.6, 0, w.z + (rng() - 0.5) * 1.6);
-        zone = 'fac';
-      } else if (moonWorld.facDoorPos) {
-        const f = moonWorld.facDoorPos;
-        const a = rng() * Math.PI * 2, d = 5 + rng() * 9;
-        const x = f.x + Math.cos(a) * d, z = f.z + Math.sin(a) * d;
-        pos = new THREE.Vector3(x, moonWorld.groundY(x, z), z);
-        zone = 'moon';
-      } else continue;
-
+      const w = facMod.cellToWorld(cells[i].x, cells[i].z);
+      const pos = new THREE.Vector3(
+        w.x + (rng() - 0.5) * 1.6, 0, w.z + (rng() - 0.5) * 1.6);
+      // id is always the array index so apply()/snapshot() stay in sync
       this.items.push({
-        id: i, type: t, value, weight: t.w,
-        state: ST.FREE, by: null, pos, zone, obj: null,
+        id: this.items.length, type: t, value, weight: t.w,
+        state: ST.FREE, by: null, pos, zone: 'fac', obj: null,
       });
     }
     this._appendCarryOver();
     this._buildMeshes();
+  }
+
+  /** Snapshot whatever is currently in the ship into the carry-over buffer. */
+  _captureShip() {
+    const ship = this.items.filter((it) => it.state === ST.SHIP);
+    if (ship.length) {
+      this._carryOver = ship.map((it) => ({
+        type: it.type, value: it.value, weight: it.weight,
+        pos: [+it.pos.x.toFixed(2), +it.pos.y.toFixed(2), +it.pos.z.toFixed(2)],
+      }));
+    }
   }
 
   /** Scrap already stowed in the ship rides along to the next moon. */
@@ -220,6 +224,33 @@ export class ScrapManager {
   reset() {
     this._carryOver = [];
     this.clear();
+  }
+
+  /** Ship contents as plain JSON for the save file. */
+  exportShip() {
+    const ship = this.items.filter((it) => it.state === ST.SHIP);
+    const src = ship.length
+      ? ship.map((it) => ({ t: it.type.id, v: it.value, w: it.weight }))
+      : (this._carryOver || []).map((c) => ({ t: c.type.id, v: c.value, w: c.weight }));
+    return src;
+  }
+
+  /** Restore ship contents from a save file (seeds the carry-over buffer).
+   *  Items are laid out in a tidy row near the storage shelf. */
+  importShip(list) {
+    this._carryOver = (list || []).map((d, i) => ({
+      type: SCRAP_TYPES.find((t) => t.id === d.t) || SCRAP_TYPES[0],
+      value: d.v, weight: d.w,
+      pos: [SHIP_W / 2 - 1.0 - (i % 3) * 0.45, 0, SHIP_D / 2 - 1.6 + ((i / 3) | 0) * 0.45],
+    }));
+  }
+
+  /** Build meshes for the carry-over buffer now (used to show a loaded run's
+   *  cargo while still in orbit, before any landing). */
+  materializeShip() {
+    this.clear();
+    this._appendCarryOver();
+    this._buildMeshes();
   }
 
   /** Serialize all item states (for late joiners). */

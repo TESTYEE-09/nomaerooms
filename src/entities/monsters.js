@@ -12,7 +12,7 @@ import { clamp, damp } from '../core/utils.js';
 import * as gen from '../world/generator.js';
 import * as facMod from '../world/facility.js';
 
-const KILL_R = { crawler: 1.5, stalker: 1.4, hound: 1.8 };
+const KILL_R = { crawler: 1.5, stalker: 1.4, hound: 1.8, coil: 1.6 };
 
 async function loadNormalized(file, height) {
   const loader = new GLTFLoader();
@@ -33,6 +33,8 @@ class Monster {
   constructor(scene, kind) {
     this.scene = scene;
     this.kind = kind;
+    // which world the entity lives in; coils set this per-instance (fac or moon)
+    this.zone = kind === 'hound' ? 'moon' : 'fac';
     this.group = new THREE.Group();
     this.group.visible = false;
     scene.add(this.group);
@@ -138,8 +140,7 @@ class Monster {
 
   fearFor(px, pz, pzone) {
     if (!this.active) return 0;
-    const myZone = this.kind === 'hound' ? 'moon' : 'fac';
-    if (pzone !== myZone) return 0;
+    if (pzone !== this.zone) return 0;
     const d = Math.hypot(px - this.pos.x, pz - this.pos.z);
     let f = clamp(1 - d / 24, 0, 1);
     if (this.state === 1) f = Math.max(f, clamp(1 - d / 32, 0, 1)) * 1.15;
@@ -317,6 +318,111 @@ class Hound extends Monster {
   }
 }
 
+// Coil-head: classic "weeping angel" rules. Completely frozen while any player
+// has it in their view cone; the instant nobody is looking it rushes straight
+// at the nearest victim — fast. Lives in the facility OR out on the surface.
+class Coil extends Monster {
+  constructor(scene) { super(scene, 'coil'); this.path = []; this.repathT = 0; }
+
+  hostUpdate(dt, players, world) {
+    if (!this.active) return;
+    this.t += dt;
+    const here = players.filter((p) => p.zone === this.zone && !p.dead);
+    if (!here.length) { this.moveAmount = damp(this.moveAmount, 0, 8, dt); this._animate(dt); return; }
+
+    let nd = Infinity, np = here[0];
+    for (const p of here) {
+      const d = Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
+      if (d < nd) { nd = d; np = p; }
+    }
+
+    // observed: any player has it within a ~100° cone (LOS too, in the maze)
+    let observed = false;
+    for (const p of here) {
+      const toX = this.pos.x - p.x, toZ = this.pos.z - p.z;
+      const dl = Math.hypot(toX, toZ);
+      if (dl > 36) continue;
+      const fx = -Math.sin(p.ry), fz = -Math.cos(p.ry);
+      const dot = (toX * fx + toZ * fz) / Math.max(dl, 1e-4);
+      if (dot <= 0.4) continue;
+      if (this.zone === 'fac') {
+        if (gen.lineOfSight(p.x - 5000, p.z - 5000, this.pos.x - 5000, this.pos.z - 5000)) { observed = true; break; }
+      } else { observed = true; break; }
+    }
+
+    this.state = observed ? 0 : 1;
+    if (observed) {
+      // frozen mid-stride, head snapped toward the watcher
+      this.heading = Math.atan2(np.x - this.pos.x, np.z - this.pos.z);
+      this.moveAmount = damp(this.moveAmount, 0, 16, dt);
+    } else {
+      const speed = this.zone === 'fac' ? 7.0 : 6.0;
+      let tx, tz;
+      if (this.zone === 'fac') {
+        const meC = facMod.worldToCell(this.pos.x, this.pos.z);
+        const npC = facMod.worldToCell(np.x, np.z);
+        this.repathT -= dt;
+        if (this.repathT <= 0 || !this.path.length) {
+          this.repathT = 0.3;
+          const path = gen.findPath(meC.x, meC.z, npC.x, npC.z);
+          this.path = path ? path.map((c) => facMod.cellToWorld(c.x, c.z)) : [];
+        }
+        if (nd < CELL * 1.5) { tx = np.x; tz = np.z; }
+        else if (this.path.length) {
+          const wp = this.path[0];
+          if (Math.hypot(wp.x - this.pos.x, wp.z - this.pos.z) < 0.6) this.path.shift();
+          const w2 = this.path[0];
+          if (w2) { tx = w2.x; tz = w2.z; }
+        }
+        if (tx !== undefined) this._move(dt, tx, tz, speed, world.collidersNear(this.pos.x, this.pos.z));
+      } else {
+        tx = np.x; tz = np.z;
+        this._move(dt, tx, tz, speed, world.collidersNear(this.pos.x, this.pos.z));
+        this.pos.y = world.groundY(this.pos.x, this.pos.z);
+      }
+    }
+    this.group.position.copy(this.pos);
+    this._animate(dt);
+  }
+}
+
+// procedural coil-head model (no GLB): a coiled spring topped by a pale,
+// staring mannequin head. Built so it never depends on a downloaded asset.
+function buildCoilModel() {
+  const g = new THREE.Group();
+  const springMat = new THREE.MeshStandardMaterial({ color: 0x3b3f44, roughness: 0.45, metalness: 0.8 });
+  for (let i = 0; i < 9; i++) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.05, 6, 14), springMat);
+    ring.position.y = 0.14 + i * 0.15;
+    ring.rotation.x = Math.PI / 2;
+    ring.rotation.z = i * 0.5;
+    ring.castShadow = true;
+    g.add(ring);
+  }
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.2, 8),
+    new THREE.MeshStandardMaterial({ color: 0xcabfa6, roughness: 0.7 }));
+  neck.position.y = 1.55;
+  g.add(neck);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 18, 16),
+    new THREE.MeshStandardMaterial({ color: 0xd9d0bd, roughness: 0.85 }));
+  head.position.y = 1.82;
+  head.scale.set(0.9, 1.05, 0.95);
+  head.castShadow = true;
+  g.add(head);
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.3, emissive: 0x120000, emissiveIntensity: 0.5 });
+  for (const ex of [-0.09, 0.09]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), eyeMat);
+    eye.position.set(ex, 1.86, 0.2);
+    g.add(eye);
+  }
+  // gaping mouth
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.07, 0.04),
+    new THREE.MeshStandardMaterial({ color: 0x100808 }));
+  mouth.position.set(0, 1.74, 0.22);
+  g.add(mouth);
+  return g;
+}
+
 // ---- manager ----
 
 export class Monsters {
@@ -343,7 +449,16 @@ export class Monsters {
   _make(kind) {
     const m = kind === 'crawler' ? new Crawler(this.scene)
             : kind === 'stalker' ? new Stalker(this.scene)
+            : kind === 'coil' ? new Coil(this.scene)
             : new Hound(this.scene);
+    if (kind === 'coil') {
+      // procedural model — no GLB dependency
+      const model = buildCoilModel();
+      m.model = model;
+      m.group.add(model);
+      this.list.push(m);
+      return m;
+    }
     const a = this._assets[kind];
     if (a) {
       // SkinnedMesh clones need SkeletonUtils to rebind bones
@@ -364,49 +479,71 @@ export class Monsters {
     return m;
   }
 
-  /** Host: spawn the set for a landing. Deterministic placement isn't needed —
-   *  positions stream from the host anyway. */
+  /** Host: spawn the set for a landing. Roster order is fixed (crawlers,
+   *  stalkers, coils, hounds, surface-coils) so guests index-match the stream.
+   *  Hounds are built dormant and wake at dark via releaseHounds(). */
   spawnForMoon(M, facility, moonWorld) {
     this.clearAll();
+    this._facility = facility;
+    this._moonWorld = moonWorld;
+    const facCell = (minD) => facility.pickCells((Math.random() * 1e9) | 0, 1, minD)[0];
+
     for (let i = 0; i < M.crawlers; i++) {
       const m = this._make('crawler');
-      const c = facility.pickCells((Math.random() * 1e9) | 0, 1, 10)[0];
+      const c = facCell(10);
       if (c) { const w = facMod.cellToWorld(c.x, c.z); m.spawnAt(w.x, 0, w.z); }
     }
     for (let i = 0; i < M.stalkers; i++) {
       const m = this._make('stalker');
-      const c = facility.pickCells((Math.random() * 1e9) | 0, 1, 14)[0];
+      const c = facCell(14);
       if (c) { const w = facMod.cellToWorld(c.x, c.z); m.spawnAt(w.x, 0, w.z); }
     }
-    // hounds spawn dormant; releaseHounds() activates them after dark
-    this._pendingHounds = M.hounds;
-    this._moonWorld = moonWorld;
+    for (let i = 0; i < (M.coils || 0); i++) {
+      const m = this._make('coil');
+      m.zone = 'fac';
+      const c = facCell(12);
+      if (c) { const w = facMod.cellToWorld(c.x, c.z); m.spawnAt(w.x, 0, w.z); }
+    }
+    // hounds: dormant slots, woken after dark
+    this._hounds = [];
+    for (let i = 0; i < M.hounds; i++) this._hounds.push(this._make('hound'));
+    // surface coils: roam outside, active from landing (a daytime threat)
+    for (let i = 0; i < (M.coilsOut || 0); i++) {
+      const m = this._make('coil');
+      m.zone = 'moon';
+      const a = Math.random() * Math.PI * 2, d = 40 + Math.random() * 80;
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      m.spawnAt(x, moonWorld.groundY(x, z), z);
+    }
   }
 
-  /** Guest: build the same roster (inactive until net states arrive). */
+  /** Guest: build the same roster in the same order (inactive until net). */
   buildRoster(M) {
     this.clearAll();
     for (let i = 0; i < M.crawlers; i++) this._make('crawler');
     for (let i = 0; i < M.stalkers; i++) this._make('stalker');
+    for (let i = 0; i < (M.coils || 0); i++) { const m = this._make('coil'); m.zone = 'fac'; }
     for (let i = 0; i < M.hounds; i++) this._make('hound');
+    for (let i = 0; i < (M.coilsOut || 0); i++) { const m = this._make('coil'); m.zone = 'moon'; }
   }
 
   releaseHounds() {
-    if (!this._pendingHounds) return false;
-    for (let i = 0; i < this._pendingHounds; i++) {
-      const m = this._make('hound');
+    const hounds = this._hounds || [];
+    if (!hounds.length) return false;
+    for (const m of hounds) {
       const a = Math.random() * Math.PI * 2;
       const d = 90 + Math.random() * 60;
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
       m.spawnAt(x, this._moonWorld.groundY(x, z), z);
     }
-    this._pendingHounds = 0;
+    this._hounds = [];
     return true;
   }
 
   hostUpdate(dt, players, facility, moonWorld) {
     for (const m of this.list) {
       if (m.kind === 'hound') m.hostUpdate(dt, players, moonWorld);
+      else if (m.kind === 'coil') m.hostUpdate(dt, players, m.zone === 'moon' ? moonWorld : facility);
       else m.hostUpdate(dt, players, facility);
     }
   }
@@ -419,7 +556,7 @@ export class Monsters {
   checkKills(players) {
     for (const m of this.list) {
       if (!m.active) continue;
-      const zone = m.kind === 'hound' ? 'moon' : 'fac';
+      const zone = m.zone;
       for (const p of players) {
         if (p.zone !== zone || p.dead) continue;
         if (Math.hypot(p.x - m.pos.x, p.z - m.pos.z) < KILL_R[m.kind]) {
@@ -448,8 +585,7 @@ export class Monsters {
     let best = null, bd = Infinity;
     for (const m of this.list) {
       if (!m.active) continue;
-      const mz = m.kind === 'hound' ? 'moon' : 'fac';
-      if (mz !== zone) continue;
+      if (m.zone !== zone) continue;
       const d = Math.hypot(px - m.pos.x, pz - m.pos.z);
       if (d < bd) { bd = d; best = m; }
     }
@@ -462,6 +598,6 @@ export class Monsters {
       this.scene.remove(m.group);
     }
     this.list = [];
-    this._pendingHounds = 0;
+    this._hounds = [];
   }
 }

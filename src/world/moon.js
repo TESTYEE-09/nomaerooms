@@ -193,9 +193,35 @@ export class MoonWorld {
       door.position.set(f.x + fwd.x * 1.2, f.y + 1.3, f.z + fwd.z * 1.2);
       door.rotation.y = yaw;
       group.add(door);
-      const lamp = new THREE.PointLight(0xffd9a0, 5, 12, 1.6);
+      const lamp = new THREE.PointLight(0xffd9a0, 6, 14, 1.6);
       lamp.position.set(f.x + fwd.x * 2.2, f.y + 3.2, f.z + fwd.z * 2.2);
       group.add(lamp);
+      // lit ENTRANCE sign over the door
+      const sTex = makeSignTex('ENTRANCE', '#1a0c06', '#ffb45a');
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.6, 0.62),
+        new THREE.MeshBasicMaterial({ map: sTex })
+      );
+      sign.position.set(f.x + fwd.x * 1.32, f.y + 3.0, f.z + fwd.z * 1.32);
+      sign.rotation.y = yaw;
+      group.add(sign);
+      // tall beacon mast with a pulsing orb — findable from the landing pad
+      const mast = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.1, 0.14, 9, 6),
+        new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.7, metalness: 0.6 })
+      );
+      mast.position.set(f.x - fwd.x * 1.2, f.y + 4.5, f.z - fwd.z * 1.2);
+      group.add(mast);
+      const beaconOrb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.4, 14, 12),
+        new THREE.MeshBasicMaterial({ color: 0xff7a3a })
+      );
+      beaconOrb.position.set(f.x - fwd.x * 1.2, f.y + 9.2, f.z - fwd.z * 1.2);
+      group.add(beaconOrb);
+      const beaconLight = new THREE.PointLight(0xff7a3a, 8, 60, 1.4);
+      beaconLight.position.copy(beaconOrb.position);
+      group.add(beaconLight);
+      this.entranceBeacon = { orb: beaconOrb, light: beaconLight };
       this.facDoorEnter = { x: f.x + fwd.x * 1.8, z: f.z + fwd.z * 1.8 };
       // bunker collider (rough box around it; the door interaction teleports)
       this.colliders.push({ minX: f.x - 3.6, maxX: f.x + 3.6, minZ: f.z - 3.6, maxZ: f.z + 3.6 });
@@ -264,6 +290,12 @@ export class MoonWorld {
    * Returns {fog, density, sky} for graphics.setEnv.
    */
   updateSky(hour) {
+    // pulse the entrance beacon so the facility door is findable across terrain
+    if (this.entranceBeacon) {
+      const p = 0.5 + 0.5 * Math.sin(performance.now() * 0.004);
+      this.entranceBeacon.light.intensity = 5 + p * 7;
+      this.entranceBeacon.orb.scale.setScalar(0.85 + p * 0.4);
+    }
     if (hour === null || this.moonIdx < 0) {
       // orbit: black void + stars
       this.stars.visible = true;
@@ -314,7 +346,22 @@ export class MoonWorld {
     this.counterPos = null;
     this.bellPos = null;
     this.colliders = [];
+    this.entranceBeacon = null;
   }
+}
+
+function makeSignTex(label, bg, fg) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 64;
+  const x = c.getContext('2d');
+  x.fillStyle = bg; x.fillRect(0, 0, 256, 64);
+  x.strokeStyle = fg; x.lineWidth = 4; x.strokeRect(4, 4, 248, 56);
+  x.fillStyle = fg; x.font = 'bold 34px monospace';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(label, 128, 36);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 function smooth(t) { return t * t * (3 - 2 * t); }

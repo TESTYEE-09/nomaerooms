@@ -21,6 +21,7 @@ import { AudioEngine } from './audio/audio.js';
 import { Monsters } from './entities/monsters.js';
 import { ScrapManager, ST } from './game/items.js';
 import { Terminal } from './game/terminal.js';
+import { saveRun, loadRun, clearRun } from './game/save.js';
 import { Net } from './net/net.js';
 import { RemotePlayers } from './net/remotes.js';
 import { loadSettings, settings } from './core/settings.js';
@@ -75,6 +76,7 @@ const GS = {
 };
 let phaseT = 0;          // seconds in current transit phase (local)
 let worldReady = false;  // moon/facility geometry currently built
+let myFlashlight = false; // does the local player own a flashlight
 let dead = false;
 let deadBy = null;
 let allDeadT = 0;
@@ -133,6 +135,22 @@ ui.onHost = async () => {
   }
 };
 
+ui.onContinue = async () => {
+  const saved = loadRun();
+  if (!saved) { ui.refreshContinue(); return; }
+  ui.setBusy(true);
+  const seed = saved.seed | 0;
+  let code = makeRoomCode();
+  if (code === 'NROOMS') code = makeRoomCode();
+  try {
+    await net.host(code, myProfile(), seed);
+    startGame(seed, code, saved);
+  } catch (e) {
+    net.destroy();
+    ui.showMenu(net.friendlyErr(e));
+  }
+};
+
 ui.onJoin = async (code) => {
   ui.setBusy(true);
   try {
@@ -148,19 +166,31 @@ ui.onJoin = async (code) => {
 
 // ---------- game lifecycle ----------
 
-function startGame(seed, code) {
+function startGame(seed, code, saved = null) {
   GS.seed = seed | 0;
   Object.assign(GS, {
     ph: 'orbit', routed: null, moon: null, day: 1, dl: QUOTA_DAYS,
     q: START_QUOTA, sold: 0, money: START_MONEY, clk: DAY_START_H, cyc: 1,
   });
   scrap.reset();
+  myFlashlight = false;
+  // restore a saved run's economy + ship cargo (host only)
+  if (saved) {
+    Object.assign(GS, {
+      day: saved.day, dl: saved.dl, q: saved.q, sold: saved.sold,
+      money: saved.money, cyc: saved.cyc,
+    });
+    scrap.importShip(saved.ship);
+    scrap.materializeShip();
+    myFlashlight = !!saved.flashlight;
+  }
   dead = false;
   worldReady = false;
   const q = graphics.applyQuality(settings.quality, settings.fov);
   lights.configure(q);
 
   spawnInShip();
+  if (myFlashlight) { player.setFlashlight(true); ui.setFlashlight(true); }
   ship.setDoor(false);
   ship.setHullVisible(false);
 
@@ -220,8 +250,9 @@ function buildWorld() {
   const idx = GS.moon;
   const fs = facSeed();
   gen.setSeed(fs);
+  gen.setTheme(MOONS[idx].maze);
   moonWorld.build(idx, fs);
-  if (idx !== COMPANY_IDX) facility.build();
+  if (idx !== COMPANY_IDX) facility.build(MOONS[idx].maze);
   scrap.spawnForMoon(fs, idx, GS.day, facility, moonWorld);
   if (net.isHost) monsters.spawnForMoon(MOONS[idx], facility, moonWorld);
   else monsters.buildRoster(MOONS[idx]);
@@ -300,6 +331,16 @@ function gmPayload() {
   };
 }
 
+// Persist the run (host only) at stable beats so it can be resumed later.
+function maybeSave() {
+  if (!net.isHost) return;
+  saveRun({
+    seed: GS.seed, day: GS.day, dl: GS.dl, q: GS.q, sold: GS.sold,
+    money: GS.money, cyc: GS.cyc, flashlight: myFlashlight,
+    ship: scrap.exportShip(),
+  });
+}
+
 function hostLever() {
   if (GS.ph === 'orbit') {
     if (GS.routed === null) {
@@ -352,6 +393,7 @@ function hostFinishLeaving() {
     }
   }
   sendGm();
+  maybeSave();
 }
 
 function firedStats() {
@@ -366,6 +408,7 @@ function hostCycleComplete() {
   net.send('ev', { e: 'quota' });
   ui.addChat(null, `quota fulfilled! new quota: $${GS.q}. ${QUOTA_DAYS} days.`, { system: true });
   audio.sellChime();
+  maybeSave();
 }
 
 function hostResetRun() {
@@ -380,6 +423,7 @@ function hostResetRun() {
 }
 
 function onFired(stats) {
+  clearRun();
   input.releaseLock();
   terminal.hide();
   ui.showFired(stats);
@@ -444,6 +488,7 @@ function hostBell() {
   audio.cash();
   if (GS.sold >= GS.q) hostCycleComplete();
   sendGm();
+  maybeSave();
 }
 
 function hostBuy(pid, what) {
@@ -457,10 +502,12 @@ function hostBuy(pid, what) {
   net.send('ev', { e: 'buy', pid, what });
   applyBuy(pid, what);
   sendGm();
+  maybeSave();
 }
 
 function applyBuy(pid, what) {
   if (what === 'flashlight' && pid === net.myId) {
+    myFlashlight = true;
     player.setFlashlight(true);
     ui.setFlashlight(true);
     audio.flashlightOn();
@@ -960,6 +1007,7 @@ function frame(fromTimer) {
   if (zone === 'fac') {
     lights.update(t, player.pos.x, player.pos.z);
     lights.ambient.intensity = 0.45;
+    facility.updateBeacon(t);
   } else {
     lights.update(t, 1e8, 1e8); // park the pool
     lights.ambient.intensity = 0.08;

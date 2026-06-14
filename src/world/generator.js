@@ -16,6 +16,12 @@ let SEED = 1;
 export function setSeed(s) { SEED = s | 0; }
 export function getSeed() { return SEED; }
 
+// per-moon maze personality (set from MOONS[idx].maze before building)
+let THEME = { hall: 0.60, dMin: 0.14, dAmp: 0.20, pillar: 0.8 };
+export function setTheme(t) {
+  THEME = { hall: 0.60, dMin: 0.14, dAmp: 0.20, pillar: 0.8, ...(t || {}) };
+}
+
 // Facility bounds in cell coords (inclusive). Edges are solid walls; cells
 // outside are impassable. The facility builder sets these per layout.
 let B = { x0: 0, z0: 0, x1: 33, z1: 33 };
@@ -27,13 +33,13 @@ function hallField(x, z) {
   return valueNoise(x / 11, z / 11, SEED ^ 0x5eed);
 }
 
-// local wall density 0.14 .. 0.34
+// local wall density, themed per moon
 function density(x, z) {
-  return 0.14 + 0.20 * valueNoise(x / 23 + 100, z / 23 - 50, SEED ^ 0x77aa);
+  return THEME.dMin + THEME.dAmp * valueNoise(x / 23 + 100, z / 23 - 50, SEED ^ 0x77aa);
 }
 
 export function isHall(x, z) {
-  return hallField(x, z) > 0.60;
+  return hallField(x, z) > THEME.hall;
 }
 
 export function wallE(x, z) {
@@ -50,8 +56,8 @@ export function wallS(x, z) {
 
 export function pillar(x, z) {
   if (isHall(x, z)) {
-    // regular-ish colonnade with gaps
-    return ((x % 3) + 3) % 3 === 1 && ((z % 3) + 3) % 3 === 1 && hash3(x, z, 3, SEED) < 0.8;
+    // regular-ish colonnade with gaps (density themed per moon)
+    return ((x % 3) + 3) % 3 === 1 && ((z % 3) + 3) % 3 === 1 && hash3(x, z, 3, SEED) < THEME.pillar;
   }
   return false;
 }

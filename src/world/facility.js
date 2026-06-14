@@ -11,6 +11,21 @@ import * as gen from './generator.js';
 
 const FIXTURE_W = 1.35, FIXTURE_D = 0.42, FIXTURE_H = 0.09;
 
+// lit signage texture (label centred, glowing colour on dark plate)
+function makeSignTex(label, bg, fg) {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 72;
+  const x = c.getContext('2d');
+  x.fillStyle = bg; x.fillRect(0, 0, 256, 72);
+  x.strokeStyle = fg; x.lineWidth = 4; x.strokeRect(4, 4, 248, 64);
+  x.fillStyle = fg; x.font = 'bold 46px monospace';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(label, 128, 40);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function wallBox(len, alongX, cx, cz) {
   const g = new THREE.BoxGeometry(alongX ? len : WALL_T, WALL_H, alongX ? WALL_T : len);
   const uv = g.attributes.uv;
@@ -56,10 +71,14 @@ export class Facility {
     this.built = false;
   }
 
-  /** (Re)build the whole maze for the current generator seed. */
-  build() {
+  /** (Re)build the whole maze for the current generator seed + moon theme. */
+  build(theme) {
     this.dispose();
     gen.setBounds(0, 0, FAC_CELLS - 1, FAC_CELLS - 1);
+
+    // tint the (shared-texture) walls per moon so each facility reads distinct
+    this._wallMat = this.materials.facWall.clone();
+    if (theme?.tint !== undefined) this._wallMat.color = new THREE.Color(theme.tint);
 
     const group = new THREE.Group();
     const wallGeos = [];
@@ -116,7 +135,7 @@ export class Facility {
 
     const merged = mergeGeometries(wallGeos);
     wallGeos.forEach((g) => g.dispose());
-    const walls = new THREE.Mesh(merged, this.materials.facWall);
+    const walls = new THREE.Mesh(merged, this._wallMat);
     walls.castShadow = true;
     walls.receiveShadow = true;
     group.add(walls);
@@ -165,31 +184,77 @@ export class Facility {
     }
 
     // entrance: middle of the south (z=0) edge. The exit door is a glowing
-    // metal slab set into the boundary wall — E teleports outside.
+    // metal slab set into the boundary wall — E teleports outside. Made loud
+    // and obvious: lit green door, big EXIT sign, hazard frame, beacons, and
+    // glowing floor arrows leading to it so it's findable in the dark maze.
     const entCell = { x: (FAC_CELLS / 2) | 0, z: 0 };
     const entW = cellToWorld(entCell.x, entCell.z);
     this.entrance = { x: entW.x, z: FAC_OFF.z + 1.4, cell: entCell };
+    const zWall = FAC_OFF.z + WALL_T / 2;
     const doorMat = new THREE.MeshStandardMaterial({
-      color: 0x8a2f23, roughness: 0.6, metalness: 0.5,
-      emissive: 0x401008, emissiveIntensity: 0.8,
+      color: 0x1f6e2c, roughness: 0.5, metalness: 0.5,
+      emissive: 0x1f9a38, emissiveIntensity: 0.5,
     });
-    const door = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.5, 0.22), doorMat);
-    door.position.set(entW.x, 1.25, FAC_OFF.z + WALL_T / 2 + 0.05);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(1.7, 2.6, 0.22), doorMat);
+    door.position.set(entW.x, 1.3, zWall + 0.06);
     group.add(door);
+    // hazard-yellow frame around the doorway
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0xd9b020, roughness: 0.7, emissive: 0x3a2c04, emissiveIntensity: 0.5 });
+    for (const [w, h, dx, dy] of [[2.1, 0.2, 0, 1.45], [0.2, 3.0, -0.95, 0], [0.2, 3.0, 0.95, 0]]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.12), frameMat);
+      bar.position.set(entW.x + dx, 1.3 + dy, zWall + 0.12);
+      group.add(bar);
+    }
+    // big lit EXIT sign
+    const signTex = makeSignTex('EXIT', '#0a1f0c', '#5dff86');
     const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.5, 0.35),
-      new THREE.MeshBasicMaterial({ color: 0x35d04a })
+      new THREE.PlaneGeometry(2.2, 0.62),
+      new THREE.MeshBasicMaterial({ map: signTex })
     );
-    sign.position.set(entW.x, 2.8, FAC_OFF.z + WALL_T / 2 + 0.2);
+    sign.position.set(entW.x, 3.15, zWall + 0.16);
     group.add(sign);
-    const exitLight = new THREE.PointLight(0x4bff66, 6, 9, 1.6);
-    exitLight.position.set(entW.x, 2.6, FAC_OFF.z + 1.4);
-    group.add(exitLight);
+    // beacons that pulse (animated via updateBeacon)
+    this.exitBeacons = [];
+    for (const bx of [-1.25, 1.25]) {
+      const orb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 12, 10),
+        new THREE.MeshBasicMaterial({ color: 0x6dff8a })
+      );
+      orb.position.set(entW.x + bx, 2.7, FAC_OFF.z + 0.9);
+      group.add(orb);
+      const bl = new THREE.PointLight(0x4bff66, 1.6, 7, 1.8);
+      bl.position.copy(orb.position);
+      group.add(bl);
+      this.exitBeacons.push({ orb, light: bl, base: 1.6 });
+    }
+    this.exitLight = new THREE.PointLight(0x4bff66, 2.6, 9, 1.8);
+    this.exitLight.position.set(entW.x, 2.6, FAC_OFF.z + 1.6);
+    group.add(this.exitLight);
+    // glowing floor arrows on the approach (point toward -Z, the door)
+    const arrowMat = new THREE.MeshBasicMaterial({ color: 0x2bd048 });
+    for (let i = 0; i < 3; i++) {
+      const arrow = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.5), arrowMat);
+      arrow.rotation.x = -Math.PI / 2;
+      arrow.rotation.z = Math.PI;
+      arrow.position.set(entW.x, 0.03, FAC_OFF.z + 2.4 + i * 1.6);
+      group.add(arrow);
+    }
     this.exitDoor = door;
 
     this.scene.add(group);
     this.group = group;
     this.built = true;
+  }
+
+  /** Pulse the exit beacons so the way out is easy to spot. */
+  updateBeacon(t) {
+    if (!this.exitBeacons) return;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+    if (this.exitLight) this.exitLight.intensity = 2 + pulse * 2;
+    for (const b of this.exitBeacons) {
+      b.light.intensity = b.base * (0.4 + pulse * 0.8);
+      b.orb.scale.setScalar(0.8 + pulse * 0.5);
+    }
   }
 
   /** Wall/pillar AABBs near a world position. */
@@ -254,6 +319,8 @@ export class Facility {
     this.built = false;
     this.fixtures = [];
     this.colliders = [];
+    this.exitBeacons = null;
+    this.exitLight = null;
   }
 }
 
